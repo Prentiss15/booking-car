@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    container_name: car_booking_app
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - booking_data:/var/www/html/data
+    environment:
+      - TZ=Asia/Bangkok
+      - DB_PATH=/var/www/html/data/database.sqlite
+
+volumes:
+  booking_data:
+    driver: local

@@ -1,0 +1,47 @@
+# ==============================================================================
+# Security and Configuration for Apache / LiteSpeed (cPanel, Shared Hosting, Cloud)
+# ระบบจองรถต้นเดือน - ธุรการอาศรมบรรพชิต DCI
+# ==============================================================================
+
+# 1. ป้องกันการเข้าถึงไฟล์ฐานข้อมูล SQLite และไฟล์สำคัญเด็ดขาด
+<FilesMatch "(?i)\.(sqlite|sqlite3|db|log|env|sh|bat|yml|yaml|md)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+<Files "Dockerfile">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</Files>
+
+# 2. ปิด Directory Browsing (ป้องกันคนภายนอกดูรายการไฟล์ในโฟลเดอร์)
+Options -Indexes
+
+# 3. กำหนดค่าพื้นฐาน
+AddDefaultCharset UTF-8
+
+# 4. Security Headers เพื่อความปลอดภัยระดับสากล
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-XSS-Protection "1; mode=block"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# 5. เปิดใช้งาน RewriteEngine (ถ้าต้องการบังคับ HTTPS ใน Production)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # ป้องกันการเข้าถึงโฟลเดอร์ includes โดยตรง
+    RewriteRule ^includes/ - [F,L]
+</IfModule>

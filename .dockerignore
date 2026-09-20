@@ -1,0 +1,7 @@
+.git
+.gitignore
+*.bat
+database.sqlite
+database.sqlite-wal
+database.sqlite-shm
+data/

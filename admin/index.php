@@ -309,6 +309,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt = $db->prepare("DELETE FROM vehicles WHERE id = ?");
         $stmt->execute([$vehicleId]);
         $msg = 'ลบรถคันดังกล่าวเรียบร้อยแล้ว';
+
+    } elseif ($action === 'duplicate_trip') {
+        $sourceTripId = (int)($_POST['source_trip_id'] ?? 0);
+        if ($sourceTripId > 0) {
+            $stmtSrc = $db->prepare("SELECT * FROM trips WHERE id = ?");
+            $stmtSrc->execute([$sourceTripId]);
+            $srcTrip = $stmtSrc->fetch();
+
+            if ($srcTrip) {
+                $db->beginTransaction();
+                try {
+                    // คำนวณวันอาทิตย์ต้นเดือนถัดไป
+                    $curDate = new DateTime($srcTrip['trip_date']);
+                    $curDate->modify('first day of next month');
+                    if ($curDate->format('N') != 7) {
+                        $curDate->modify('next sunday');
+                    }
+                    $nextTripDate = $curDate->format('Y-m-d');
+
+                    $stmtNew = $db->prepare("
+                        INSERT INTO trips (
+                            title, trip_date, departure_time, destination, pickup_location,
+                            pickup_time_info, return_time_info, notice_red, deadline_notice, notes, is_active
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    ");
+                    $stmtNew->execute([
+                        $srcTrip['title'], $nextTripDate, $srcTrip['departure_time'], $srcTrip['destination'],
+                        $srcTrip['pickup_location'] ?? 'หน้ากุฏิพระประจำ',
+                        $srcTrip['pickup_time_info'], $srcTrip['return_time_info'], $srcTrip['notice_red'],
+                        $srcTrip['deadline_notice'], $srcTrip['notes']
+                    ]);
+                    $newTripId = $db->lastInsertId();
+
+                    $stmtVeh = $db->prepare("SELECT * FROM vehicles WHERE trip_id = ? ORDER BY id ASC");
+                    $stmtVeh->execute([$sourceTripId]);
+                    $vehicles = $stmtVeh->fetchAll();
+
+                    $stmtInsVeh = $db->prepare("
+                        INSERT INTO vehicles (trip_id, type, vehicle_type_label, vehicle_number, name, license_plate, driver_name, driver_phone, total_seats, header_color)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ");
+                    foreach ($vehicles as $v) {
+                        $stmtInsVeh->execute([
+                            $newTripId, $v['type'], $v['vehicle_type_label'], $v['vehicle_number'],
+                            $v['name'], $v['license_plate'], $v['driver_name'], $v['driver_phone'],
+                            $v['total_seats'], $v['header_color']
+                        ]);
+                    }
+
+                    $db->commit();
+                    $msg = "คัดลอกโครงสร้างรอบเดิมเป็นรอบใหม่เรียบร้อยแล้ว (" . formatThaiDate($nextTripDate) . " - มีรถ " . count($vehicles) . " คัน ที่นั่งว่าง 0 คน พร้อมเปิดรับ)";
+                    $msgType = 'success';
+                    $_GET['trip_id'] = $newTripId;
+                } catch (Exception $e) {
+                    $db->rollBack();
+                    $msg = 'เกิดข้อผิดพลาดในการคัดลอกรอบ: ' . $e->getMessage();
+                    $msgType = 'error';
+                }
+            }
+        }
+
+    } elseif ($action === 'clear_all_bookings') {
+        $targetTripId = (int)($_POST['trip_id'] ?? 0);
+        if ($targetTripId > 0) {
+            $stmtCount = $db->prepare("SELECT COUNT(*) FROM bookings WHERE trip_id = ?");
+            $stmtCount->execute([$targetTripId]);
+            $cnt = (int)$stmtCount->fetchColumn();
+
+            $stmtClear = $db->prepare("DELETE FROM bookings WHERE trip_id = ?");
+            $stmtClear->execute([$targetTripId]);
+            $msg = "ล้างข้อมูลผู้ลงชื่อในรอบนี้ทั้งหมดจำนวน {$cnt} คนเรียบร้อยแล้ว (ที่นั่งว่าง 0 คน พร้อมสำหรับรอบใหม่)";
+            $msgType = 'success';
+        }
     }
 }
 
@@ -462,6 +535,24 @@ require_once __DIR__ . '/../includes/header.php';
                                         class="px-4 py-2 rounded-xl text-xs font-bold transition shadow-sm flex items-center space-x-2 <?= $isOpen ? 'bg-emerald-600 hover:bg-emerald-700 text-white ring-4 ring-emerald-100' : 'bg-rose-600 hover:bg-rose-700 text-white ring-4 ring-rose-100' ?>">
                                     <i class="fa-solid <?= $isOpen ? 'fa-toggle-on text-base' : 'fa-toggle-off text-base' ?>"></i>
                                     <span>สถานะ: <?= $isOpen ? 'เปิดรับลงชื่อ' : 'ปิดรับการลงชื่อ' ?> (คลิกเพื่อเปลี่ยน)</span>
+                                </button>
+                            </form>
+
+                            <form method="POST" onsubmit="return confirm('ยืนยันคัดลอกโครงสร้างรอบนี้ (คันรถทั้งหมด) ไปสร้างเป็นรอบใหม่สำหรับเดือนถัดไป หรือไม่?\n(รอบใหม่จะมีรถครบทุกคันและที่นั่งว่าง 0 คน พร้อมเปิดรับลงชื่อทันที)')" class="inline">
+                                <input type="hidden" name="action" value="duplicate_trip">
+                                <input type="hidden" name="source_trip_id" value="<?= $currentTrip['id'] ?>">
+                                <button type="submit" class="px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 transition flex items-center space-x-1.5 shadow-2xs" title="คัดลอกคันรถทั้งหมดไปสร้างรอบใหม่สำหรับเดือนถัดไป">
+                                    <i class="fa-solid fa-copy text-indigo-500"></i>
+                                    <span>คัดลอกรอบใหม่</span>
+                                </button>
+                            </form>
+
+                            <form method="POST" onsubmit="return confirm('ยืนยันล้างรายชื่อผู้ลงทะเบียนในรอบนี้ทั้งหมดหรือไม่?\n(คันรถจะยังคงอยู่ครบ 100% ที่นั่งจะว่าง 0 คน)')" class="inline">
+                                <input type="hidden" name="action" value="clear_all_bookings">
+                                <input type="hidden" name="trip_id" value="<?= $currentTrip['id'] ?>">
+                                <button type="submit" class="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition flex items-center space-x-1.5 shadow-2xs" title="ล้างรายชื่อทั้งหมดในรอบนี้">
+                                    <i class="fa-solid fa-trash-can text-rose-500"></i>
+                                    <span>ล้างรายชื่อ</span>
                                 </button>
                             </form>
 

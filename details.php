@@ -43,6 +43,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $msgType = 'success';
         }
     }
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'bulk_delete_passengers') {
+    $bookingIds = $_POST['booking_ids'] ?? [];
+    if (is_array($bookingIds)) {
+        $cleanIds = array_filter(array_map('intval', $bookingIds), function($id) { return $id > 0; });
+        if (!empty($cleanIds)) {
+            $inClause = implode(',', array_fill(0, count($cleanIds), '?'));
+            $stmtDel = $db->prepare("DELETE FROM bookings WHERE id IN ({$inClause})");
+            $stmtDel->execute(array_values($cleanIds));
+            $delCount = count($cleanIds);
+            $msg = "ลบรายชื่อผู้ลงทะเบียนที่เลือกจำนวน {$delCount} คนเรียบร้อยแล้ว";
+            $msgType = 'success';
+        } else {
+            $msg = 'กรุณาเลือกรายชื่อที่ต้องการลบอย่างน้อย 1 รายการ';
+            $msgType = 'error';
+        }
+    }
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_passenger') {
+    $bookingId = (int)($_POST['booking_id'] ?? 0);
+    if ($bookingId > 0) {
+        $stmtDel = $db->prepare("DELETE FROM bookings WHERE id = ?");
+        $stmtDel->execute([$bookingId]);
+        $msg = 'ลบรายชื่อผู้ลงทะเบียนเรียบร้อยแล้ว';
+        $msgType = 'success';
+    }
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'clear_all_bookings') {
+    $targetTripId = (int)($_POST['trip_id'] ?? 0);
+    if ($targetTripId > 0) {
+        $stmtCount = $db->prepare("SELECT COUNT(*) FROM bookings WHERE trip_id = ?");
+        $stmtCount->execute([$targetTripId]);
+        $cnt = (int)$stmtCount->fetchColumn();
+
+        $stmtClear = $db->prepare("DELETE FROM bookings WHERE trip_id = ?");
+        $stmtClear->execute([$targetTripId]);
+        $msg = "ล้างข้อมูลผู้ลงชื่อในรอบนี้ทั้งหมดจำนวน {$cnt} คนเรียบร้อยแล้ว (ที่นั่งว่าง 0 คน พร้อมสำหรับรอบใหม่)";
+        $msgType = 'success';
+    }
 }
 
 // ดึงรอบ
@@ -193,6 +229,10 @@ require_once __DIR__ . '/includes/header.php';
         </div>
 
         <div class="flex items-center gap-2.5">
+            <button type="button" onclick="openClearAllModal()" class="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-medium px-3.5 py-2 rounded-lg text-xs transition flex items-center space-x-1.5 shadow-2xs" title="ล้างรายชื่อผู้ลงทะเบียนทั้งหมดในรอบนี้ (คงสภาพคันรถไว้สำหรับรอบถัดไป)">
+                <i class="fa-solid fa-trash-can text-rose-500"></i>
+                <span>ล้างรายชื่อทั้งรอบ</span>
+            </button>
             <a href="?trip_id=<?= $selectedTripId ?>&export=csv" class="bg-slate-900 hover:bg-slate-800 text-white font-medium px-4 py-2 rounded-lg text-xs transition flex items-center space-x-2 shadow-sm">
                 <i class="fa-solid fa-file-arrow-down"></i>
                 <span>ส่งออก CSV</span>
@@ -294,117 +334,196 @@ require_once __DIR__ . '/includes/header.php';
         </form>
     </div>
 
-    <!-- Data Table -->
-    <div class="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <div class="overflow-x-auto">
-            <table class="w-full text-left text-xs sm:text-sm">
-                <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 text-[11px] uppercase tracking-wider">
-                    <tr>
-                        <th class="py-3 px-4 w-12 text-center">#</th>
-                        <th class="py-3 px-4">คันรถ / ชนิดรถ</th>
-                        <th class="py-3 px-3 text-center w-16">ที่นั่ง</th>
-                        <th class="py-3 px-4">ชื่อ-ฉายา/นามสกุล (ข้อมูลดิบพร้อมคัดลอก)</th>
-                        <th class="py-3 px-3 text-center">อายุ</th>
-                        <th class="py-3 px-4 text-center">เบอร์โทรศัพท์</th>
-                        <th class="py-3 px-4">การเดินทาง</th>
-                        <th class="py-3 px-4">หมายเหตุผู้ดูแล</th>
-                        <th class="py-3 px-4 text-center">เวลาลงชื่อ</th>
-                        <th class="py-3 px-4 text-center w-24">จัดการ</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                    <?php if (empty($passengers)): ?>
+    <!-- Data Table & Bulk Selection Form -->
+    <form id="bulkDeleteForm" method="POST" onsubmit="return false;">
+        <input type="hidden" name="action" value="bulk_delete_passengers">
+        <input type="hidden" name="trip_id" value="<?= $selectedTripId ?>">
+
+        <div class="bg-white rounded-xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs sm:text-sm">
+                    <thead class="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200 text-[11px] uppercase tracking-wider">
                         <tr>
-                            <td colspan="10" class="py-12 text-center text-slate-400">
-                                <i class="fa-regular fa-folder-open text-2xl mb-2 block text-slate-300"></i>
-                                <span>ไม่พบข้อมูลตามเงื่อนไขที่ระบุ</span>
-                            </td>
+                            <th class="py-3 px-3 w-10 text-center">
+                                <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)" class="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" title="เลือกทั้งหมด">
+                            </th>
+                            <th class="py-3 px-3 w-12 text-center">#</th>
+                            <th class="py-3 px-4">คันรถ / ชนิดรถ</th>
+                            <th class="py-3 px-3 text-center w-16">ที่นั่ง</th>
+                            <th class="py-3 px-4">ชื่อ-ฉายา/นามสกุล (ข้อมูลดิบพร้อมคัดลอก)</th>
+                            <th class="py-3 px-3 text-center">อายุ</th>
+                            <th class="py-3 px-4 text-center">เบอร์โทรศัพท์</th>
+                            <th class="py-3 px-4">การเดินทาง</th>
+                            <th class="py-3 px-4">หมายเหตุผู้ดูแล</th>
+                            <th class="py-3 px-4 text-center">เวลาลงชื่อ</th>
+                            <th class="py-3 px-4 text-center w-28">จัดการ</th>
                         </tr>
-                    <?php else: ?>
-                        <?php foreach ($passengers as $idx => $p): 
-                            $tType = $p['travel_type'] ?? 'เดินทางไป และ เดินทางกลับ';
-                            $isRoundTrip = mb_stripos($tType, 'กลับ') !== false && mb_stripos($tType, 'ไป') !== false;
-                            $rawFullName = !empty($p['first_name']) ? trim($p['prefix'] . $p['first_name'] . ' ' . $p['last_name_or_nickname']) : $p['passenger_name'];
-                        ?>
-                            <tr class="hover:bg-slate-50/70 transition">
-                                <td class="py-3 px-4 text-center font-mono text-slate-400 text-xs">
-                                    <?= ($idx + 1) ?>
-                                </td>
-                                <td class="py-3 px-4">
-                                    <div class="font-semibold text-slate-900"><?= clean($p['vehicle_name']) ?></div>
-                                    <span class="text-[11px] text-slate-400 block"><?= clean($p['vehicle_type_label'] ?? '') ?></span>
-                                </td>
-                                <td class="py-3 px-3 text-center">
-                                    <span class="inline-flex items-center justify-center w-6 h-6 rounded bg-slate-100 text-slate-800 font-mono font-bold text-xs">
-                                        <?= $p['seat_number'] ?>
-                                    </span>
-                                </td>
-                                <td class="py-3 px-4">
-                                    <div class="flex items-center space-x-1.5">
-                                        <span class="font-bold text-slate-900 text-xs sm:text-sm select-all">
-                                             <?= clean($rawFullName) ?>
-                                        </span>
-                                        <button type="button" 
-                                                onclick="copyRawText('<?= htmlspecialchars(addslashes($rawFullName), ENT_QUOTES) ?>', this)" 
-                                                class="text-slate-400 hover:text-indigo-600 p-1 text-xs transition rounded hover:bg-slate-100" 
-                                                title="คลิกเพื่อคัดลอกชื่อไปกรอก">
-                                            <i class="fa-regular fa-copy"></i>
-                                        </button>
-                                    </div>
-                                    <span class="text-[10px] text-slate-400 font-normal block mt-0.5">
-                                        <?= clean($p['prefix']) ?> • <?= clean($p['first_name']) ?> • <?= clean($p['last_name_or_nickname']) ?>
-                                    </span>
-                                </td>
-                                <td class="py-3 px-3 text-center font-mono text-slate-600">
-                                    <?= clean($p['age']) ?: '-' ?>
-                                </td>
-                                <td class="py-3 px-4 text-center font-mono">
-                                    <a href="tel:<?= clean($p['phone']) ?>" class="text-slate-700 hover:text-indigo-600">
-                                        <?= clean($p['phone']) ?>
-                                    </a>
-                                </td>
-                                <td class="py-3 px-4 text-xs">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium <?= $isRoundTrip ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-blue-50 text-blue-800 border border-blue-200' ?>">
-                                        <?= clean($tType) ?>
-                                    </span>
-                                </td>
-                                <td class="py-3 px-4 text-xs">
-                                    <?php if (!empty($p['admin_note'])): ?>
-                                        <span class="inline-block bg-amber-50 text-amber-900 border border-amber-300 px-2 py-0.5 rounded font-medium">
-                                            <?= clean($p['admin_note']) ?>
-                                        </span>
-                                    <?php else: ?>
-                                        <span class="text-slate-300">-</span>
-                                    <?php endif; ?>
-                                </td>
-                                <td class="py-3 px-4 text-center text-xs text-slate-400 font-mono">
-                                    <?= date('d/m/y H:i', strtotime($p['created_at'])) ?>
-                                </td>
-                                <td class="py-3 px-4 text-center">
-                                    <button type="button" 
-                                            data-id="<?= $p['id'] ?>"
-                                            data-prefix="<?= htmlspecialchars($p['prefix'] ?? '', ENT_QUOTES) ?>"
-                                            data-firstname="<?= htmlspecialchars($p['first_name'] ?? '', ENT_QUOTES) ?>"
-                                            data-lastname="<?= htmlspecialchars($p['last_name_or_nickname'] ?? '', ENT_QUOTES) ?>"
-                                            data-fullname="<?= htmlspecialchars($rawFullName, ENT_QUOTES) ?>"
-                                            data-phone="<?= htmlspecialchars($p['phone'] ?? '', ENT_QUOTES) ?>"
-                                            data-age="<?= htmlspecialchars($p['age'] ?? '', ENT_QUOTES) ?>"
-                                            data-travel="<?= htmlspecialchars($p['travel_type'] ?? 'เดินทางไป และ เดินทางกลับ', ENT_QUOTES) ?>"
-                                            data-adminnote="<?= htmlspecialchars($p['admin_note'] ?? '', ENT_QUOTES) ?>"
-                                            data-vehicle="<?= htmlspecialchars($p['vehicle_name'] ?? '', ENT_QUOTES) ?>"
-                                            data-seat="<?= $p['seat_number'] ?>"
-                                            onclick="openEditPassengerModalFromBtn(this)" 
-                                            class="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs transition border border-indigo-200 shadow-2xs" 
-                                            title="แก้ไขข้อมูล (ชื่อ-ฉายา/นามสกุล, เบอร์โทร)">
-                                        <i class="fa-solid fa-pen-to-square text-[11px]"></i>
-                                        <span>แก้ไข</span>
-                                    </button>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        <?php if (empty($passengers)): ?>
+                            <tr>
+                                <td colspan="11" class="py-12 text-center text-slate-400">
+                                    <i class="fa-regular fa-folder-open text-2xl mb-2 block text-slate-300"></i>
+                                    <span>ไม่พบข้อมูลตามเงื่อนไขที่ระบุ</span>
                                 </td>
                             </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+                        <?php else: ?>
+                            <?php foreach ($passengers as $idx => $p): 
+                                $tType = $p['travel_type'] ?? 'เดินทางไป และ เดินทางกลับ';
+                                $isRoundTrip = mb_stripos($tType, 'กลับ') !== false && mb_stripos($tType, 'ไป') !== false;
+                                $rawFullName = !empty($p['first_name']) ? trim($p['prefix'] . $p['first_name'] . ' ' . $p['last_name_or_nickname']) : $p['passenger_name'];
+                            ?>
+                                <tr class="hover:bg-slate-50/70 transition passenger-row" id="row-<?= $p['id'] ?>">
+                                    <td class="py-3 px-3 text-center">
+                                        <input type="checkbox" name="booking_ids[]" value="<?= $p['id'] ?>" class="passenger-checkbox w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" onchange="updateSelectedCount()">
+                                    </td>
+                                    <td class="py-3 px-3 text-center font-mono text-slate-400 text-xs">
+                                        <?= ($idx + 1) ?>
+                                    </td>
+                                    <td class="py-3 px-4">
+                                        <div class="font-semibold text-slate-900"><?= clean($p['vehicle_name']) ?></div>
+                                        <span class="text-[11px] text-slate-400 block"><?= clean($p['vehicle_type_label'] ?? '') ?></span>
+                                    </td>
+                                    <td class="py-3 px-3 text-center">
+                                        <span class="inline-flex items-center justify-center w-6 h-6 rounded bg-slate-100 text-slate-800 font-mono font-bold text-xs">
+                                            <?= $p['seat_number'] ?>
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4">
+                                        <div class="flex items-center space-x-1.5">
+                                            <span class="font-bold text-slate-900 text-xs sm:text-sm select-all">
+                                                 <?= clean($rawFullName) ?>
+                                            </span>
+                                            <button type="button" 
+                                                    onclick="copyRawText('<?= htmlspecialchars(addslashes($rawFullName), ENT_QUOTES) ?>', this)" 
+                                                    class="text-slate-400 hover:text-indigo-600 p-1 text-xs transition rounded hover:bg-slate-100" 
+                                                    title="คลิกเพื่อคัดลอกชื่อไปกรอก">
+                                                <i class="fa-regular fa-copy"></i>
+                                            </button>
+                                        </div>
+                                        <span class="text-[10px] text-slate-400 font-normal block mt-0.5">
+                                            <?= clean($p['prefix']) ?> • <?= clean($p['first_name']) ?> • <?= clean($p['last_name_or_nickname']) ?>
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-3 text-center font-mono text-slate-600">
+                                        <?= clean($p['age']) ?: '-' ?>
+                                    </td>
+                                    <td class="py-3 px-4 text-center font-mono">
+                                        <a href="tel:<?= clean($p['phone']) ?>" class="text-slate-700 hover:text-indigo-600">
+                                            <?= clean($p['phone']) ?>
+                                        </a>
+                                    </td>
+                                    <td class="py-3 px-4 text-xs">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium <?= $isRoundTrip ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-blue-50 text-blue-800 border border-blue-200' ?>">
+                                            <?= clean($tType) ?>
+                                        </span>
+                                    </td>
+                                    <td class="py-3 px-4 text-xs">
+                                        <?php if (!empty($p['admin_note'])): ?>
+                                            <span class="inline-block bg-amber-50 text-amber-900 border border-amber-300 px-2 py-0.5 rounded font-medium">
+                                                <?= clean($p['admin_note']) ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="text-slate-300">-</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td class="py-3 px-4 text-center text-xs text-slate-400 font-mono">
+                                        <?= date('d/m/y H:i', strtotime($p['created_at'])) ?>
+                                    </td>
+                                    <td class="py-3 px-4 text-center">
+                                        <div class="flex items-center justify-center space-x-1.5">
+                                            <button type="button" 
+                                                    data-id="<?= $p['id'] ?>"
+                                                    data-prefix="<?= htmlspecialchars($p['prefix'] ?? '', ENT_QUOTES) ?>"
+                                                    data-firstname="<?= htmlspecialchars($p['first_name'] ?? '', ENT_QUOTES) ?>"
+                                                    data-lastname="<?= htmlspecialchars($p['last_name_or_nickname'] ?? '', ENT_QUOTES) ?>"
+                                                    data-fullname="<?= htmlspecialchars($rawFullName, ENT_QUOTES) ?>"
+                                                    data-phone="<?= htmlspecialchars($p['phone'] ?? '', ENT_QUOTES) ?>"
+                                                    data-age="<?= htmlspecialchars($p['age'] ?? '', ENT_QUOTES) ?>"
+                                                    data-travel="<?= htmlspecialchars($p['travel_type'] ?? 'เดินทางไป และ เดินทางกลับ', ENT_QUOTES) ?>"
+                                                    data-adminnote="<?= htmlspecialchars($p['admin_note'] ?? '', ENT_QUOTES) ?>"
+                                                    data-vehicle="<?= htmlspecialchars($p['vehicle_name'] ?? '', ENT_QUOTES) ?>"
+                                                    data-seat="<?= $p['seat_number'] ?>"
+                                                    onclick="openEditPassengerModalFromBtn(this)" 
+                                                    class="inline-flex items-center space-x-1 px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs transition border border-indigo-200 shadow-2xs" 
+                                                    title="แก้ไขข้อมูล (ชื่อ-ฉายา/นามสกุล, เบอร์โทร)">
+                                                <i class="fa-solid fa-pen-to-square text-[11px]"></i>
+                                                <span>แก้ไข</span>
+                                            </button>
+                                            <button type="button" 
+                                                    onclick="deleteSinglePassenger(<?= $p['id'] ?>, '<?= htmlspecialchars(addslashes($rawFullName), ENT_QUOTES) ?>')" 
+                                                    class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition" 
+                                                    title="ลบรายชื่อนี้">
+                                                <i class="fa-solid fa-trash-can text-xs"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </form>
+
+    <!-- Floating Bulk Actions Bar (ลบทีละหลายคน สไตล์สากล) -->
+    <div id="bulkActionBar" class="fixed bottom-6 inset-x-0 mx-auto max-w-xl z-40 bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl flex items-center justify-between border border-slate-700 hidden transform transition-all duration-200">
+        <div class="flex items-center space-x-3">
+            <span class="w-7 h-7 rounded-full bg-indigo-500 text-white font-bold text-xs flex items-center justify-center shadow-xs" id="selectedCountBadge">0</span>
+            <div>
+                <span class="font-bold text-xs sm:text-sm">เลือกรายชื่อ <span id="selectedCountText">0</span> คน</span>
+                <span class="text-[11px] text-slate-400 block sm:inline sm:ml-2">จากที่แสดงทั้งหมด <?= count($passengers) ?> คน</span>
+            </div>
+        </div>
+        <div class="flex items-center space-x-2">
+            <button type="button" onclick="deselectAll()" class="text-xs text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg hover:bg-slate-800 transition">
+                ยกเลิก
+            </button>
+            <button type="button" onclick="submitBulkDelete()" class="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-3.5 py-1.5 rounded-lg transition flex items-center space-x-1.5 shadow-sm">
+                <i class="fa-solid fa-trash-can text-xs"></i>
+                <span>ลบรายการที่เลือก (<span id="deleteBtnCount">0</span>)</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Hidden Form for Single Deletion -->
+    <form id="singleDeleteForm" method="POST" class="hidden">
+        <input type="hidden" name="action" value="delete_passenger">
+        <input type="hidden" name="trip_id" value="<?= $selectedTripId ?>">
+        <input type="hidden" id="singleDeleteBookingId" name="booking_id" value="">
+    </form>
+
+    <!-- Modal: ล้างรายชื่อทั้งหมดในรอบนี้ -->
+    <div id="clearAllModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs hidden p-4 overflow-y-auto">
+        <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200 text-xs sm:text-sm" onclick="event.stopPropagation()">
+            <div class="flex items-center space-x-3 text-rose-600 mb-3">
+                <div class="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-lg">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-slate-900 text-base">ล้างรายชื่อทั้งหมดในรอบนี้</h3>
+                    <p class="text-xs text-slate-500">สำหรับเริ่มรอบถัดไป หรือเริ่มเปิดรับใหม่</p>
+                </div>
+            </div>
+            <p class="text-slate-600 mb-4 text-xs leading-relaxed">
+                การดำเนินการนี้จะทำการ <strong class="text-rose-600">ลบรายชื่อผู้ลงทะเบียนทั้งหมดในรอบนี้ (<?= number_format($totalCount) ?> คน)</strong> ออกจากระบบ โดยที่ <strong class="text-slate-900">คันรถและการตั้งค่ารอบเดิมจะยังคงอยู่ครบ 100%</strong> เพื่อให้พร้อมรับลงชื่อรอบใหม่ได้ทันที
+            </p>
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-[11px] text-amber-800 mb-4">
+                <i class="fa-solid fa-circle-info mr-1"></i>
+                คำแนะนำตามมาตรฐาน: หากต้องการเก็บประวัติรอบเดิมไว้ดูย้อนหลัง แนะนำให้ใช้ปุ่ม <strong>"คัดลอกรอบใหม่"</strong> ในหน้าแผงควบคุมหลักแทน
+            </div>
+            <form method="POST" class="flex justify-end space-x-2">
+                <input type="hidden" name="action" value="clear_all_bookings">
+                <input type="hidden" name="trip_id" value="<?= $selectedTripId ?>">
+                <button type="button" onclick="closeClearAllModal()" class="px-4 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition">
+                    ยกเลิก
+                </button>
+                <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg shadow-xs transition flex items-center space-x-1.5">
+                    <i class="fa-solid fa-trash-can text-xs"></i>
+                    <span>ยืนยันล้างข้อมูลทั้งรอบ</span>
+                </button>
+            </form>
         </div>
     </div>
 
@@ -554,19 +673,124 @@ function openEditPassengerModalFromBtn(btn) {
     document.getElementById('editPassengerModal').classList.remove('hidden');
 }
 
+// Bulk selection handlers
+function toggleSelectAll(master) {
+    const checkboxes = document.querySelectorAll('.passenger-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = master.checked;
+        const row = document.getElementById('row-' + cb.value);
+        if (row) {
+            if (master.checked) {
+                row.classList.add('bg-indigo-50/50');
+            } else {
+                row.classList.remove('bg-indigo-50/50');
+            }
+        }
+    });
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const checkboxes = document.querySelectorAll('.passenger-checkbox:checked');
+    const count = checkboxes.length;
+    const bar = document.getElementById('bulkActionBar');
+    const badge = document.getElementById('selectedCountBadge');
+    const text = document.getElementById('selectedCountText');
+    const btnCount = document.getElementById('deleteBtnCount');
+    const master = document.getElementById('selectAllCheckbox');
+    const all = document.querySelectorAll('.passenger-checkbox');
+
+    if (badge) badge.textContent = count;
+    if (text) text.textContent = count;
+    if (btnCount) btnCount.textContent = count;
+
+    if (count > 0) {
+        bar?.classList.remove('hidden');
+    } else {
+        bar?.classList.add('hidden');
+    }
+
+    if (master && all.length > 0) {
+        master.checked = count === all.length;
+        master.indeterminate = count > 0 && count < all.length;
+    }
+
+    // Highlight selected rows
+    document.querySelectorAll('.passenger-checkbox').forEach(cb => {
+        const row = document.getElementById('row-' + cb.value);
+        if (row) {
+            if (cb.checked) {
+                row.classList.add('bg-indigo-50/50');
+            } else {
+                row.classList.remove('bg-indigo-50/50');
+            }
+        }
+    });
+}
+
+function deselectAll() {
+    document.querySelectorAll('.passenger-checkbox').forEach(cb => {
+        cb.checked = false;
+        const row = document.getElementById('row-' + cb.value);
+        if (row) row.classList.remove('bg-indigo-50/50');
+    });
+    const master = document.getElementById('selectAllCheckbox');
+    if (master) {
+        master.checked = false;
+        master.indeterminate = false;
+    }
+    updateSelectedCount();
+}
+
+function submitBulkDelete() {
+    const checkboxes = document.querySelectorAll('.passenger-checkbox:checked');
+    const count = checkboxes.length;
+    if (count === 0) {
+        alert('กรุณาเลือกรายชื่อที่ต้องการลบอย่างน้อย 1 รายการ');
+        return;
+    }
+    if (confirm('ยืนยันลบรายชื่อผู้ลงทะเบียนที่เลือกจำนวน ' + count + ' คน หรือไม่?\n(การกระทำนี้จะลบข้อมูลออกจากระบบทันที)')) {
+        document.getElementById('bulkDeleteForm').submit();
+    }
+}
+
+function deleteSinglePassenger(bookingId, passengerName) {
+    if (confirm('ยืนยันลบรายชื่อคุณ ' + passengerName + ' ออกจากระบบหรือไม่?')) {
+        document.getElementById('singleDeleteBookingId').value = bookingId;
+        document.getElementById('singleDeleteForm').submit();
+    }
+}
+
+function openClearAllModal() {
+    document.getElementById('clearAllModal').classList.remove('hidden');
+}
+
+function closeClearAllModal() {
+    document.getElementById('clearAllModal').classList.add('hidden');
+}
+
+document.getElementById('clearAllModal')?.addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeClearAllModal();
+    }
+});
+
 function closeEditPassengerModal() {
     document.getElementById('editPassengerModal').classList.add('hidden');
 }
 
-// Close on backdrop click or ESC
+// Close on backdrop click
 document.getElementById('editPassengerModal')?.addEventListener('click', function(e) {
     if (e.target === this) {
         closeEditPassengerModal();
     }
 });
+
+// ESC key to close any open modal
 document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
         closeEditPassengerModal();
+        closeClearAllModal();
     }
 });
 </script>

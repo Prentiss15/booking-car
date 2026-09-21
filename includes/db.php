@@ -37,7 +37,8 @@ function getDbLastInsertId(PDO $db, string $table = ''): int {
 function getDb(): PDO {
     static $db = null;
     if ($db === null) {
-        $databaseUrl = getenv('DATABASE_URL') ?: getenv('POSTGRES_URL');
+        $databaseUrl = getenv('DATABASE_URL') ?: ($_ENV['DATABASE_URL'] ?? ($_SERVER['DATABASE_URL'] ?? (getenv('POSTGRES_URL') ?: ($_ENV['POSTGRES_URL'] ?? ($_SERVER['POSTGRES_URL'] ?? '')))));
+        $databaseUrl = trim((string)$databaseUrl);
         
         if (!empty($databaseUrl) && (str_starts_with($databaseUrl, 'postgres://') || str_starts_with($databaseUrl, 'postgresql://'))) {
             // PostgreSQL connection (e.g. Neon.tech, Supabase, Render Postgres)
@@ -50,14 +51,22 @@ function getDb(): PDO {
             
             // Check query string for sslmode or options
             $sslmode = 'require';
+            $endpoint = '';
             if (!empty($parsed['query'])) {
                 parse_str($parsed['query'], $queryParts);
                 if (isset($queryParts['sslmode'])) {
                     $sslmode = $queryParts['sslmode'];
                 }
+                if (!empty($queryParts['endpoint'])) {
+                    $endpoint = $queryParts['endpoint'];
+                }
             }
             
             $dsn = "pgsql:host={$host};port={$port};dbname={$dbname};sslmode={$sslmode}";
+            if (!empty($endpoint)) {
+                $dsn .= ";options='endpoint={$endpoint}'";
+            }
+
             $db = new AppPDO($dsn, $user, $pass, [
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,

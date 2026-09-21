@@ -272,6 +272,40 @@ require_once __DIR__ . '/includes/header.php';
         </div>
     </div>
 
+    <!-- Live Auto-Refresh Monitoring Bar for Admin (Item 8) -->
+    <div class="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center space-x-3">
+            <span id="liveDotDetails" class="w-3.5 h-3.5 rounded-full bg-emerald-500 live-dot"></span>
+            <div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs sm:text-sm font-bold text-slate-900">ระบบมอนิเตอร์สด (Auto-Refresh)</span>
+                    <span id="refreshTimerBadgeDetails" class="text-[11px] bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200">
+                        เปิดมอนิเตอร์
+                    </span>
+                </div>
+                <span id="lastUpdatedTimeDetails" class="text-xs text-slate-500 block mt-0.5">
+                    อัปเดตล่าสุด: กำลังโหลด...
+                </span>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-2 w-full sm:w-auto justify-between sm:justify-end">
+            <div class="flex items-center space-x-1.5">
+                <label for="refreshIntervalDetails" class="text-xs text-slate-600 font-medium whitespace-nowrap">รอบอัปเดต:</label>
+                <select id="refreshIntervalDetails" onchange="setLiveRefreshDetails(this.value)" class="text-xs sm:text-sm font-medium bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 outline-none focus:ring-1 focus:ring-slate-800">
+                    <option value="0">ปิดมอนิเตอร์</option>
+                    <option value="15">ทุก 15 วินาที</option>
+                    <option value="30" selected>ทุก 30 วินาที</option>
+                    <option value="60">ทุก 1 นาที</option>
+                </select>
+            </div>
+            <button type="button" onclick="manualRefreshDetailsNow()" class="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-semibold flex items-center space-x-1.5 transition" title="กดเพื่อดึงข้อมูลใหม่ทันที">
+                <i class="fa-solid fa-arrows-rotate" id="refreshIconDetails"></i>
+                <span class="whitespace-nowrap">รีเฟรช</span>
+            </button>
+        </div>
+    </div>
+
     <!-- Filter Bar -->
     <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs mb-6">
         <form method="GET" class="grid grid-cols-1 sm:grid-cols-12 gap-3">
@@ -405,13 +439,33 @@ require_once __DIR__ . '/includes/header.php';
                                             <?= clean($p['prefix']) ?> • <?= clean($p['first_name']) ?> • <?= clean($p['last_name_or_nickname']) ?>
                                         </span>
                                     </td>
-                                    <td class="py-3 px-3 text-center font-mono text-slate-600">
-                                        <?= clean($p['age']) ?: '-' ?>
+                                    <td class="py-3 px-3 text-center font-mono">
+                                        <?php if (!empty($p['age'])): ?>
+                                            <div class="inline-flex items-center space-x-1 justify-center">
+                                                <span class="text-slate-800 text-xs sm:text-sm font-semibold"><?= clean($p['age']) ?></span>
+                                                <button type="button" 
+                                                        onclick="copyRawText('<?= htmlspecialchars(addslashes($p['age']), ENT_QUOTES) ?>', this, 'อายุ')" 
+                                                        class="text-slate-400 hover:text-blue-600 p-1 text-xs transition rounded hover:bg-slate-100" 
+                                                        title="คลิกเพื่อคัดลอกอายุ">
+                                                    <i class="fa-regular fa-copy text-[11px]"></i>
+                                                </button>
+                                            </div>
+                                        <?php else: ?>
+                                            <span class="text-slate-300">-</span>
+                                        <?php endif; ?>
                                     </td>
-                                    <td class="py-3 px-4 text-center font-mono">
-                                        <a href="tel:<?= clean($p['phone']) ?>" class="text-slate-700 hover:text-indigo-600">
-                                            <?= clean($p['phone']) ?>
-                                        </a>
+                                    <td class="py-3 px-4 text-center font-mono whitespace-nowrap">
+                                        <div class="inline-flex items-center space-x-1 justify-center">
+                                            <a href="tel:<?= clean($p['phone']) ?>" class="text-slate-800 hover:text-blue-600 font-semibold text-xs sm:text-sm">
+                                                <?= clean($p['phone']) ?>
+                                            </a>
+                                            <button type="button" 
+                                                    onclick="copyRawText('<?= htmlspecialchars(addslashes($p['phone']), ENT_QUOTES) ?>', this, 'เบอร์โทร')" 
+                                                    class="text-slate-400 hover:text-blue-600 p-1 text-xs transition rounded hover:bg-slate-100" 
+                                                    title="คลิกเพื่อคัดลอกเบอร์โทร">
+                                                <i class="fa-regular fa-copy text-[11px]"></i>
+                                            </button>
+                                        </div>
                                     </td>
                                     <td class="py-3 px-4 text-xs">
                                         <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium <?= $isRoundTrip ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-blue-50 text-blue-800 border border-blue-200' ?>">
@@ -623,23 +677,95 @@ require_once __DIR__ . '/includes/header.php';
 </div>
 
 <script>
-function copyRawText(text, btn) {
+function copyRawText(text, btn, label = 'ข้อความ') {
+    if (!text || text === '-') return;
     if (navigator.clipboard) {
         navigator.clipboard.writeText(text).then(() => {
-            const icon = btn.querySelector('i');
-            if (icon) {
-                icon.className = 'fa-solid fa-check text-emerald-600';
-                setTimeout(() => {
-                    icon.className = 'fa-regular fa-copy';
-                }, 1500);
+            if (btn) {
+                const icon = btn.querySelector('i');
+                if (icon) {
+                    const origClass = icon.className;
+                    icon.className = 'fa-solid fa-check text-emerald-600';
+                    setTimeout(() => {
+                        icon.className = origClass;
+                    }, 1500);
+                }
+            }
+            if (typeof showToast === 'function') {
+                showToast(`คัดลอก${label} "${text}" เรียบร้อยแล้ว`, 'success');
             }
         }).catch(() => {
-            prompt('คัดลอกข้อความด้านล่างนี้ได้เลยครับ:', text);
+            prompt(`คัดลอก${label}ด้านล่างนี้ได้เลยครับ:`, text);
         });
     } else {
-        prompt('คัดลอกข้อความด้านล่างนี้ได้เลยครับ:', text);
+        prompt(`คัดลอก${label}ด้านล่างนี้ได้เลยครับ:`, text);
     }
 }
+
+// Live Monitoring Auto-Refresh Logic for Details
+let detailsRefreshTimer = null;
+let detailsCountdown = 30;
+
+function updateLastTimeDetails() {
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' น.';
+    const el = document.getElementById('lastUpdatedTimeDetails');
+    if (el) el.textContent = 'อัปเดตล่าสุด: ' + timeStr;
+}
+
+function setLiveRefreshDetails(seconds) {
+    seconds = parseInt(seconds);
+    localStorage.setItem('car_details_refresh_interval', seconds);
+    if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
+    
+    const dot = document.getElementById('liveDotDetails');
+    const badge = document.getElementById('refreshTimerBadgeDetails');
+    
+    if (seconds <= 0) {
+        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-slate-300';
+        if (badge) {
+            badge.textContent = 'ปิดมอนิเตอร์';
+            badge.className = 'text-[11px] bg-slate-100 text-slate-500 font-medium px-2.5 py-0.5 rounded-full border border-slate-200';
+        }
+        return;
+    }
+
+    if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 live-dot';
+    if (badge) {
+        badge.textContent = `อัปเดตทุก ${seconds} วิ`;
+        badge.className = 'text-[11px] bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200';
+    }
+
+    detailsCountdown = seconds;
+    detailsRefreshTimer = setInterval(() => {
+        detailsCountdown--;
+        if (detailsCountdown <= 0) {
+            manualRefreshDetailsNow();
+        }
+    }, 1000);
+}
+
+function manualRefreshDetailsNow() {
+    const icon = document.getElementById('refreshIconDetails');
+    if (icon) icon.classList.add('fa-spin');
+    sessionStorage.setItem('car_details_scroll_pos', window.scrollY);
+    window.location.reload();
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    updateLastTimeDetails();
+    const savedScroll = sessionStorage.getItem('car_details_scroll_pos');
+    if (savedScroll !== null) {
+        window.scrollTo(0, parseInt(savedScroll));
+        sessionStorage.removeItem('car_details_scroll_pos');
+    }
+    const savedInterval = localStorage.getItem('car_details_refresh_interval') !== null 
+        ? parseInt(localStorage.getItem('car_details_refresh_interval')) 
+        : 30; // default 30s
+    const selectEl = document.getElementById('refreshIntervalDetails');
+    if (selectEl) selectEl.value = savedInterval;
+    setLiveRefreshDetails(savedInterval);
+});
 
 function openEditPassengerModalFromBtn(btn) {
     const ds = btn.dataset;

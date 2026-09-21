@@ -382,6 +382,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = "ล้างข้อมูลผู้ลงชื่อในรอบนี้ทั้งหมดจำนวน {$cnt} คนเรียบร้อยแล้ว (ที่นั่งว่าง 0 คน พร้อมสำหรับรอบใหม่)";
             $msgType = 'success';
         }
+
+    } elseif ($action === 'delete_trip') {
+        $targetTripId = (int)($_POST['trip_id'] ?? 0);
+        if ($targetTripId > 0) {
+            $stmtTrip = $db->prepare("SELECT title, trip_date FROM trips WHERE id = ?");
+            $stmtTrip->execute([$targetTripId]);
+            $t = $stmtTrip->fetch();
+            if ($t) {
+                $stmtDel = $db->prepare("DELETE FROM trips WHERE id = ?");
+                $stmtDel->execute([$targetTripId]);
+                $msg = "ลบรอบการเดินทาง '{$t['title']} (" . formatThaiDate($t['trip_date']) . ")' เรียบร้อยแล้ว";
+                $msgType = 'success';
+            }
+        }
     }
 }
 
@@ -553,6 +567,15 @@ require_once __DIR__ . '/../includes/header.php';
                                 <button type="submit" class="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition flex items-center space-x-1.5 shadow-2xs" title="ล้างรายชื่อทั้งหมดในรอบนี้">
                                     <i class="fa-solid fa-trash-can text-rose-500"></i>
                                     <span>ล้างรายชื่อ</span>
+                                </button>
+                            </form>
+
+                            <form method="POST" onsubmit="return confirm('⚠️ คำเตือนสำคัญ!\nคุณแน่ใจหรือไม่ว่าต้องการลบรอบการเดินทาง \'<?= htmlspecialchars(addslashes($currentTrip['title']), ENT_QUOTES) ?>\' นี้อย่างถาวร?\n(ข้อมูลคันรถและรายชื่อผู้ลงชื่อในรอบนี้ทั้งหมดจะถูกลบ และไม่สามารถกู้คืนได้)')" class="inline">
+                                <input type="hidden" name="action" value="delete_trip">
+                                <input type="hidden" name="trip_id" value="<?= $currentTrip['id'] ?>">
+                                <button type="submit" class="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition flex items-center space-x-1.5 shadow-2xs" title="ลบรอบการเดินทางนี้ทิ้งอย่างถาวร">
+                                    <i class="fa-solid fa-trash text-xs"></i>
+                                    <span>ลบรอบนี้</span>
                                 </button>
                             </form>
 

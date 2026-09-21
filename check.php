@@ -1,5 +1,5 @@
 <?php
-// check.php - หน้าตรวจสอบรายชื่อ (ดีไซน์สากล เรียบหรู สะอาดตา พร้อมค้นหา Real-time)
+// check.php - หน้าตรวจสอบรายชื่อ (ดีไซน์สากล เรียบหรู สะอาดตา พร้อมค้นหา Real-time และระบบมอนิเตอร์สด)
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/functions.php';
 
@@ -93,59 +93,71 @@ foreach ($vehicles as $v) {
     ];
 }
 
+// Helper formatting: คำนำหน้าติดกับชื่อเสมอ ไม่เว้นวรรค
+function formatCleanPassengerName(array $p): string {
+    $prefix = trim($p['prefix'] ?? '');
+    $firstName = trim($p['first_name'] ?? '');
+    $lastName = trim($p['last_name_or_nickname'] ?? '');
+    if (!empty($firstName)) {
+        return $prefix . $firstName . ($lastName ? ' ' . $lastName : '');
+    }
+    return preg_replace('/^(พระมหา|พระครู|พระอาจารย์|พระ|สามเณร|นาย|นางสาว|นาง)\s+/u', '$1', trim($p['passenger_name'] ?? ''));
+}
+
 define('APP_TITLE', 'ตรวจสอบรายชื่อ');
 require_once __DIR__ . '/includes/header.php';
 ?>
 
-<div class="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+<div class="max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
 
     <!-- Top Schedule & Information Bar -->
     <?php if ($selectedTrip): ?>
-        <div class="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-xs mb-6">
+        <div class="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs mb-5">
             <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
                 
-                <div class="space-y-1.5">
-                    <div class="flex items-center space-x-2 text-xs text-slate-500 font-medium">
-                        <span>กำหนดการเดินทาง:</span>
-                        <strong class="text-slate-800 font-semibold"><?= formatThaiDate($selectedTrip['trip_date']) ?></strong>
+                <div class="space-y-2">
+                    <div class="flex items-center space-x-2 text-xs sm:text-sm text-slate-500 font-medium">
+                        <span class="shrink-0 whitespace-nowrap">กำหนดการเดินทาง:</span>
+                        <strong class="text-slate-900 font-bold"><?= formatThaiDate($selectedTrip['trip_date']) ?></strong>
                     </div>
-                    <h1 class="text-2xl font-bold text-slate-900 tracking-tight">
+                    <h1 class="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
                         ตรวจสอบรายชื่อผู้ร่วมเดินทาง
                     </h1>
-                    <p class="text-xs text-slate-500">
+                    <p class="text-xs sm:text-sm text-slate-500">
                         <?= clean($selectedTrip['title']) ?>
                     </p>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 text-xs">
-                        <div class="flex items-center space-x-2 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg text-slate-700">
-                            <span class="w-2 h-2 rounded-full bg-emerald-600"></span>
-                            <span class="font-medium text-slate-900">ขาไป:</span>
-                            <span><?= clean($selectedTrip['pickup_time_info'] ?? 'ขึ้นรถ 08.00 น.') ?></span>
+                    <!-- การตัดคำ: ใส่ shrink-0 whitespace-nowrap ไม่ให้ ขาไป / ขากลับ ตัดคำ -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 text-xs sm:text-sm">
+                        <div class="flex items-center space-x-2 bg-slate-50 border border-slate-200/80 px-3.5 py-2 rounded-xl text-slate-700">
+                            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0"></span>
+                            <span class="font-bold text-slate-900 shrink-0 whitespace-nowrap">ขาไป:</span>
+                            <span class="text-slate-700 leading-snug"><?= clean($selectedTrip['pickup_time_info'] ?? 'ขึ้นรถ 08.00 น.') ?></span>
                         </div>
-                        <div class="flex items-center space-x-2 bg-slate-50 border border-slate-100 px-3 py-1.5 rounded-lg text-slate-700">
-                            <span class="w-2 h-2 rounded-full bg-blue-600"></span>
-                            <span class="font-medium text-slate-900">ขากลับ:</span>
-                            <span><?= clean($selectedTrip['return_time_info'] ?? 'ขึ้นรถ 16.00 น.') ?></span>
+                        <div class="flex items-center space-x-2 bg-slate-50 border border-slate-200/80 px-3.5 py-2 rounded-xl text-slate-700">
+                            <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span>
+                            <span class="font-bold text-slate-900 shrink-0 whitespace-nowrap">ขากลับ:</span>
+                            <span class="text-slate-700 leading-snug"><?= clean($selectedTrip['return_time_info'] ?? 'ขึ้นรถ 16.00 น.') ?></span>
                         </div>
                     </div>
 
                     <?php if (!empty($selectedTrip['notice_red'])): ?>
-                        <div class="mt-2 text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200/80 p-2 rounded-lg">
-                            <i class="fa-solid fa-circle-info mr-1 text-rose-500"></i>
-                            <span><?= clean($selectedTrip['notice_red']) ?></span>
+                        <div class="mt-2 text-xs sm:text-sm font-medium text-rose-800 bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-start space-x-2">
+                            <i class="fa-solid fa-circle-info text-rose-500 mt-0.5 shrink-0"></i>
+                            <span class="leading-relaxed"><?= clean($selectedTrip['notice_red']) ?></span>
                         </div>
                     <?php endif; ?>
                 </div>
 
                 <!-- Stats summary -->
-                <div class="bg-slate-900 text-white p-4 sm:p-5 rounded-xl min-w-[200px] shadow-xs">
-                    <div class="text-[11px] text-slate-400 font-medium uppercase tracking-wider">ลงชื่อแล้วทั้งหมด</div>
-                    <div class="text-2xl font-bold mt-0.5">
-                        <?= number_format($totalBooked) ?> <span class="text-xs font-normal text-slate-400">/ <?= $totalCapacity ?> คน</span>
+                <div class="bg-slate-800 text-white p-5 rounded-2xl min-w-[220px] shadow-sm border border-slate-700">
+                    <div class="text-xs text-slate-400 font-medium uppercase tracking-wider">ลงชื่อแล้วทั้งหมด</div>
+                    <div class="text-3xl font-bold mt-1 text-white">
+                        <?= number_format($totalBooked) ?> <span class="text-sm font-normal text-slate-400">/ <?= $totalCapacity ?> คน</span>
                     </div>
-                    <div class="border-t border-slate-800 mt-2 pt-1.5 flex items-center justify-between text-xs text-slate-300">
-                        <span>ที่นั่งว่างคงเหลือ:</span>
-                        <span class="font-semibold text-emerald-400"><?= max(0, $totalCapacity - $totalBooked) ?> ที่นั่ง</span>
+                    <div class="border-t border-slate-700/80 mt-3 pt-2 flex items-center justify-between text-xs sm:text-sm text-slate-300">
+                        <span class="whitespace-nowrap">ที่นั่งว่างคงเหลือ:</span>
+                        <span class="font-bold text-emerald-400 text-sm whitespace-nowrap"><?= max(0, $totalCapacity - $totalBooked) ?> ที่นั่ง</span>
                     </div>
                 </div>
 
@@ -153,14 +165,48 @@ require_once __DIR__ . '/includes/header.php';
         </div>
     <?php endif; ?>
 
-    <!-- Search Section (Clean International UI with Real-time Autocomplete) -->
-    <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs mb-6 relative">
+    <!-- Item 8: Live Auto-Refresh Monitoring Bar (มอนิเตอร์สด) -->
+    <div class="bg-white rounded-2xl p-4 border border-slate-200/90 shadow-xs mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center space-x-3">
+            <span id="liveDot" class="w-3.5 h-3.5 rounded-full bg-emerald-500 live-dot"></span>
+            <div>
+                <div class="flex items-center space-x-2">
+                    <span class="text-xs sm:text-sm font-bold text-slate-900">ระบบมอนิเตอร์สด (Auto-Refresh)</span>
+                    <span id="refreshTimerBadge" class="text-[11px] bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200">
+                        เปิดมอนิเตอร์
+                    </span>
+                </div>
+                <span id="lastUpdatedTime" class="text-xs text-slate-500 block mt-0.5">
+                    อัปเดตล่าสุด: กำลังโหลด...
+                </span>
+            </div>
+        </div>
+
+        <div class="flex items-center space-x-2 w-full sm:w-auto justify-between sm:justify-end">
+            <div class="flex items-center space-x-1.5">
+                <label for="refreshInterval" class="text-xs text-slate-600 font-medium whitespace-nowrap">รอบอัปเดต:</label>
+                <select id="refreshInterval" onchange="setLiveRefresh(this.value)" class="text-xs sm:text-sm font-medium bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800 outline-none focus:ring-1 focus:ring-slate-800">
+                    <option value="0">ปิดมอนิเตอร์</option>
+                    <option value="15">ทุก 15 วินาที</option>
+                    <option value="30" selected>ทุก 30 วินาที</option>
+                    <option value="60">ทุก 1 นาที</option>
+                </select>
+            </div>
+            <button type="button" onclick="manualRefreshNow()" class="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-semibold flex items-center space-x-1.5 transition" title="กดเพื่อดึงข้อมูลใหม่ทันที">
+                <i class="fa-solid fa-arrows-rotate" id="refreshIcon"></i>
+                <span class="whitespace-nowrap">รีเฟรช</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Search Section (Clean Modern UI with Real-time Autocomplete) -->
+    <div class="bg-white rounded-2xl p-5 border border-slate-200/90 shadow-xs mb-5 relative">
         <div class="max-w-2xl">
-            <h2 class="text-sm font-bold text-slate-900 mb-0.5 flex items-center space-x-2">
-                <i class="fa-solid fa-magnifying-glass text-slate-500 text-xs"></i>
+            <h2 class="text-sm sm:text-base font-bold text-slate-900 mb-1 flex items-center space-x-2">
+                <i class="fa-solid fa-magnifying-glass text-slate-500 text-xs sm:text-sm"></i>
                 <span>ค้นหาชื่อเพื่อดูคันรถและที่นั่ง</span>
             </h2>
-            <p class="text-xs text-slate-400 mb-3">
+            <p class="text-xs sm:text-sm text-slate-500 mb-3">
                 พิมพ์ชื่อ, ฉายา หรือเบอร์โทรศัพท์ (ระบบจะแสดงชื่อแนะนำให้ทันที)
             </p>
 
@@ -175,16 +221,16 @@ require_once __DIR__ . '/includes/header.php';
                                autocomplete="off"
                                value="<?= clean($searchQuery) ?>" 
                                placeholder="เช่น บุญช่วย, กตญาโณ, 082..." 
-                               class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none">
-                        <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
+                               class="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-800 focus:border-slate-800 outline-none">
+                        <i class="fa-solid fa-search absolute left-3.5 top-3.5 text-slate-400 text-sm"></i>
                     </div>
 
-                    <div class="flex gap-1.5">
-                        <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white font-medium px-4 py-2 rounded-lg text-xs transition">
+                    <div class="flex gap-2">
+                        <button type="submit" class="bg-slate-800 hover:bg-slate-700 text-white font-semibold px-5 py-2.5 rounded-xl text-xs sm:text-sm transition shadow-xs flex-1 sm:flex-initial">
                             ค้นหา
                         </button>
                         <?php if (!empty($searchQuery)): ?>
-                            <a href="/check.php?trip_id=<?= $selectedTripId ?>" class="bg-slate-100 hover:bg-slate-200 text-slate-600 font-medium px-3 py-2 rounded-lg text-xs flex items-center justify-center transition">
+                            <a href="/check.php?trip_id=<?= $selectedTripId ?>" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-4 py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center transition">
                                 ล้าง
                             </a>
                         <?php endif; ?>
@@ -192,7 +238,7 @@ require_once __DIR__ . '/includes/header.php';
                 </form>
 
                 <!-- Dropdown Autocomplete -->
-                <div id="suggestionDropdown" class="absolute left-0 right-0 top-full mt-1.5 bg-white text-slate-800 rounded-xl shadow-lg border border-slate-200 overflow-hidden z-40 hidden max-h-72 overflow-y-auto"></div>
+                <div id="suggestionDropdown" class="absolute left-0 right-0 top-full mt-1.5 bg-white text-slate-800 rounded-xl shadow-xl border border-slate-200 overflow-hidden z-30 hidden max-h-72 overflow-y-auto"></div>
             </div>
         </div>
 
@@ -201,23 +247,25 @@ require_once __DIR__ . '/includes/header.php';
             <div class="mt-4 pt-4 border-t border-slate-100">
                 <?php if (!empty($myBookings)): ?>
                     <div class="space-y-2">
-                        <span class="text-xs font-semibold text-slate-700 block">ผลการค้นหา (พบ <?= count($myBookings) ?> คน):</span>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                            <?php foreach ($myBookings as $b): ?>
-                                <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-center justify-between">
+                        <span class="text-xs sm:text-sm font-semibold text-slate-800 block">ผลการค้นหา (พบ <?= count($myBookings) ?> คน):</span>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <?php foreach ($myBookings as $b): 
+                                $bFullName = formatCleanPassengerName($b);
+                            ?>
+                                <div class="bg-slate-50/80 p-4 rounded-xl border border-slate-200 flex items-center justify-between">
                                     <div>
-                                        <div class="font-bold text-slate-900 text-sm"><?= clean($b['passenger_name']) ?></div>
-                                        <div class="text-xs text-slate-500 mt-0.5">
+                                        <div class="font-bold text-slate-900 text-sm sm:text-base"><?= clean($bFullName) ?></div>
+                                        <div class="text-xs sm:text-sm text-slate-600 mt-1 flex flex-wrap items-center gap-1.5">
                                             <span>คันรถ: <strong class="text-slate-900"><?= clean($b['vehicle_name']) ?></strong></span>
-                                            <span class="mx-1">•</span>
-                                            <span>ที่นั่งที่: <strong class="text-indigo-700"><?= $b['seat_number'] ?></strong></span>
+                                            <span>•</span>
+                                            <span>ที่นั่งที่: <strong class="text-blue-700 font-bold"><?= $b['seat_number'] ?></strong></span>
                                         </div>
                                     </div>
                                     <div class="text-right">
                                         <button type="button" 
-                                                onclick="openCancelModal(<?= $b['id'] ?>, '<?= clean($b['passenger_name']) ?>', '<?= clean($b['vehicle_name']) ?>', <?= $b['seat_number'] ?>)"
-                                                class="text-xs text-rose-600 hover:underline">
-                                            ขอยกเลิก
+                                                onclick="openCancelModal(<?= $b['id'] ?>, '<?= clean($bFullName) ?>', '<?= clean($b['vehicle_name']) ?>', <?= $b['seat_number'] ?>)"
+                                                class="text-xs font-semibold text-rose-600 hover:text-rose-800 hover:underline px-2.5 py-1.5 bg-rose-50 rounded-lg border border-rose-200">
+                                            ยกเลิกการจอง
                                         </button>
                                     </div>
                                 </div>
@@ -225,7 +273,7 @@ require_once __DIR__ . '/includes/header.php';
                         </div>
                     </div>
                 <?php else: ?>
-                    <div class="text-xs text-slate-500 p-2">
+                    <div class="text-xs sm:text-sm text-slate-500 p-2">
                         ไม่พบรายชื่อที่ตรงกับ "<?= clean($searchQuery) ?>"
                     </div>
                 <?php endif; ?>
@@ -234,10 +282,10 @@ require_once __DIR__ . '/includes/header.php';
     </div>
 
     <!-- Vehicle Filter Tabs -->
-    <div class="flex flex-wrap items-center justify-between gap-2.5 mb-5">
-        <div class="flex flex-wrap items-center gap-1.5 text-xs">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div class="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
             <a href="?trip_id=<?= $selectedTripId ?>" 
-               class="px-3 py-1.5 rounded-lg font-medium transition <?= $filterVehicleId === 0 ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200' ?>">
+               class="px-3.5 py-2 rounded-xl font-semibold transition <?= $filterVehicleId === 0 ? 'bg-slate-800 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200' ?>">
                 ดูทุกคัน (<?= count($vehicles) ?>)
             </a>
 
@@ -245,15 +293,16 @@ require_once __DIR__ . '/includes/header.php';
                 $isActiveTab = $filterVehicleId === $v['id'];
             ?>
                 <a href="?trip_id=<?= $selectedTripId ?>&vehicle_id=<?= $v['id'] ?>" 
-                   class="px-3 py-1.5 rounded-lg font-medium transition <?= $isActiveTab ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200' ?>">
+                   class="px-3.5 py-2 rounded-xl font-semibold transition <?= $isActiveTab ? 'bg-slate-800 text-white shadow-xs' : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200' ?>">
                     <span><?= clean($v['name']) ?></span>
-                    <span class="text-[11px] text-slate-400 ml-1">(<?= $v['booked_count'] ?>/<?= $v['total_seats'] ?>)</span>
+                    <span class="text-xs <?= $isActiveTab ? 'text-slate-300' : 'text-slate-400' ?> ml-1">(<?= $v['booked_count'] ?>/<?= $v['total_seats'] ?>)</span>
                 </a>
             <?php endforeach; ?>
         </div>
 
-        <a href="/index.php?trip_id=<?= $selectedTripId ?>" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3.5 py-1.5 rounded-lg transition shadow-xs">
-            + ลงชื่อเพิ่ม
+        <a href="/index.php?trip_id=<?= $selectedTripId ?>" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold px-4 py-2 rounded-xl transition shadow-xs flex items-center space-x-1.5">
+            <i class="fa-solid fa-plus text-xs"></i>
+            <span>ลงชื่อเพิ่ม</span>
         </a>
     </div>
 
@@ -272,62 +321,64 @@ require_once __DIR__ . '/includes/header.php';
             <div class="bg-white rounded-2xl border border-slate-200/90 overflow-hidden shadow-xs">
                 
                 <!-- Vehicle Header -->
-                <div class="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/70">
+                <div class="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/80">
                     <div class="flex items-center space-x-2.5">
-                        <span class="font-bold text-slate-900 text-sm"><?= clean($v['name']) ?></span>
-                        <span class="text-xs text-slate-500 font-medium px-2 py-0.5 bg-white border border-slate-200 rounded">
+                        <span class="font-bold text-slate-900 text-sm sm:text-base"><?= clean($v['name']) ?></span>
+                        <span class="text-xs text-slate-600 font-medium px-2.5 py-0.5 bg-white border border-slate-200 rounded-lg">
                             <?= $vehLabel ?>
                         </span>
                     </div>
 
-                    <div class="text-xs font-medium">
+                    <div class="text-xs sm:text-sm font-bold">
                         <?php if ($isFull): ?>
-                            <span class="text-rose-600 font-semibold">● เต็มแล้ว (<?= $totalSeats ?> คน)</span>
+                            <span class="text-rose-600">● เต็มแล้ว (<?= $totalSeats ?> คน)</span>
                         <?php else: ?>
-                            <span class="text-emerald-700 font-semibold">● ว่างอีก <?= $availCount ?> ที่นั่ง</span>
+                            <span class="text-emerald-700">● ว่างอีก <?= $availCount ?> ที่นั่ง</span>
                         <?php endif; ?>
                     </div>
                 </div>
 
-                <!-- Table -->
+                <!-- Table View -->
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-xs sm:text-sm">
-                        <thead class="bg-slate-50/50 text-slate-500 font-semibold border-b border-slate-200 text-[11px] uppercase tracking-wider">
+                        <thead class="bg-slate-50/70 text-slate-500 font-semibold border-b border-slate-200 text-xs uppercase tracking-wider">
                             <tr>
-                                <th class="py-2.5 px-4 w-16 text-center">ลำดับ</th>
-                                <th class="py-2.5 px-4">ชื่อ - ฉายา (นามสกุล)</th>
-                                <th class="py-2.5 px-4 w-32 text-center">เบอร์โทร</th>
-                                <th class="py-2.5 px-4">การเดินทาง</th>
-                                <th class="py-2.5 px-4">หมายเหตุ</th>
-                                <th class="py-2.5 px-4 text-center w-24">สถานะ</th>
+                                <th class="py-3 px-3.5 w-16 text-center shrink-0 whitespace-nowrap">ลำดับ</th>
+                                <th class="py-3 px-4 shrink-0 whitespace-nowrap">ชื่อ - ฉายา (นามสกุล)</th>
+                                <th class="py-3 px-3.5 w-36 text-center shrink-0 whitespace-nowrap">เบอร์โทร</th>
+                                <th class="py-3 px-3.5 shrink-0 whitespace-nowrap">การเดินทาง</th>
+                                <th class="py-3 px-3.5 shrink-0 whitespace-nowrap">หมายเหตุ</th>
+                                <th class="py-3 px-3.5 text-center w-24 shrink-0 whitespace-nowrap">สถานะ</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100">
                             <?php for ($sn = 1; $sn <= $totalSeats; $sn++): 
                                 $has = isset($seatMap[$sn]);
                                 $p = $has ? $seatMap[$sn] : null;
+                                $fullName = $has ? formatCleanPassengerName($p) : '';
 
                                 $isMatch = false;
                                 if ($has && !empty($searchQuery)) {
-                                    $combined = $p['passenger_name'] . ' ' . $p['phone'];
+                                    $combined = $fullName . ' ' . $p['phone'];
                                     if (mb_stripos($combined, $searchQuery) !== false) {
                                         $isMatch = true;
                                     }
                                 }
                             ?>
-                                <tr class="transition <?= $isMatch ? 'bg-amber-100/80 font-bold' : ($has ? 'hover:bg-slate-50/70 bg-white' : 'bg-slate-50/20 text-slate-300') ?>">
+                                <tr class="transition <?= $isMatch ? 'bg-amber-100/90 font-semibold' : ($has ? 'hover:bg-slate-50/80 bg-white' : 'bg-slate-50/30 text-slate-300') ?>">
                                     
-                                    <td class="py-2.5 px-4 text-center font-mono font-medium text-slate-500 text-xs">
+                                    <td class="py-3 px-3.5 text-center font-mono font-bold text-slate-600 text-xs sm:text-sm">
                                         <?= $sn ?>
                                     </td>
 
-                                    <td class="py-2.5 px-4 font-medium <?= $has ? 'text-slate-900' : 'italic text-slate-300' ?>">
-                                        <?= $has ? clean($p['passenger_name']) : '- ที่นั่งว่าง -' ?>
+                                    <!-- Passenger Name: คำนำหน้าติดกับชื่อเสมอ ไม่เว้นวรรค (Item 5) -->
+                                    <td class="py-3 px-4 font-semibold <?= $has ? 'text-slate-900 text-sm sm:text-base' : 'italic text-slate-400 text-xs sm:text-sm' ?>">
+                                        <?= $has ? clean($fullName) : '- ที่นั่งว่าง -' ?>
                                     </td>
 
-                                    <td class="py-2.5 px-4 text-center font-mono text-xs text-slate-600">
+                                    <td class="py-3 px-3.5 text-center font-mono text-xs sm:text-sm text-slate-700 whitespace-nowrap">
                                         <?php if ($has): ?>
-                                            <a href="tel:<?= clean($p['phone']) ?>" class="hover:text-indigo-600">
+                                            <a href="tel:<?= clean($p['phone']) ?>" class="hover:text-blue-600 hover:underline">
                                                 <?= clean($p['phone']) ?>
                                             </a>
                                         <?php else: ?>
@@ -335,30 +386,31 @@ require_once __DIR__ . '/includes/header.php';
                                         <?php endif; ?>
                                     </td>
 
-                                    <td class="py-2.5 px-4 text-xs text-slate-600">
+                                    <td class="py-3 px-3.5 text-xs sm:text-sm text-slate-600 whitespace-nowrap">
                                         <?= $has ? clean($p['travel_type'] ?? 'เดินทางไป และ เดินทางกลับ') : '-' ?>
                                     </td>
 
-                                    <td class="py-2.5 px-4 text-xs">
+                                    <td class="py-3 px-3.5 text-xs sm:text-sm">
                                         <?php if ($has && !empty($p['admin_note'])): ?>
-                                            <span class="inline-block bg-amber-50 text-amber-900 border border-amber-300 px-1.5 py-0.5 rounded text-[11px] font-medium">
+                                            <span class="inline-block bg-amber-50 text-amber-900 border border-amber-300 px-2 py-0.5 rounded text-xs font-semibold">
                                                 <?= clean($p['admin_note']) ?>
                                             </span>
                                         <?php elseif ($has && !empty($p['note'])): ?>
-                                            <span class="text-slate-500"><?= clean($p['note']) ?></span>
+                                            <span class="text-slate-600"><?= clean($p['note']) ?></span>
                                         <?php else: ?>
                                             <span class="text-slate-300">-</span>
                                         <?php endif; ?>
                                     </td>
 
-                                    <td class="py-2.5 px-4 text-center text-xs">
+                                    <!-- Item 5: แก้คำผิด จองที่นี้ เป็น จองที่นี่ -->
+                                    <td class="py-3 px-3.5 text-center text-xs whitespace-nowrap">
                                         <?php if ($has): ?>
-                                            <span class="text-emerald-700 font-medium text-[11px]">
+                                            <span class="text-emerald-700 font-bold text-xs bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
                                                 ลงชื่อแล้ว
                                             </span>
                                         <?php else: ?>
-                                            <a href="/index.php?trip_id=<?= $selectedTripId ?>" class="text-indigo-600 hover:text-indigo-800 font-semibold text-[11px]">
-                                                จองที่นี้
+                                            <a href="/index.php?trip_id=<?= $selectedTripId ?>" class="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-md hover:bg-blue-100 transition">
+                                                จองที่นี่
                                             </a>
                                         <?php endif; ?>
                                     </td>
@@ -377,20 +429,20 @@ require_once __DIR__ . '/includes/header.php';
 
 <!-- Modal: Cancel Booking -->
 <div id="cancelModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs hidden p-4">
-    <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl border border-slate-200 text-xs">
-        <h3 class="font-bold text-slate-900 text-sm mb-1 text-center">ยืนยันการยกเลิก</h3>
-        <p class="text-slate-500 text-center mb-3">ยกเลิกการลงชื่อของ <span id="cancelPassengerName" class="font-semibold text-slate-800"></span></p>
+    <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-200 text-xs sm:text-sm">
+        <h3 class="font-bold text-slate-900 text-base mb-1 text-center">ยืนยันการยกเลิก</h3>
+        <p class="text-slate-500 text-center mb-4">ยกเลิกการลงชื่อของ <span id="cancelPassengerName" class="font-bold text-slate-800"></span></p>
 
-        <form id="cancelForm" onsubmit="submitCancel(event)" class="space-y-3">
+        <form id="cancelForm" onsubmit="submitCancel(event)" class="space-y-3.5">
             <input type="hidden" id="cancelBookingId" name="booking_id" value="">
             <div>
-                <label class="block text-slate-700 font-medium mb-1">เบอร์โทรศัพท์ที่ใช้ลงชื่อ เพื่อยืนยัน</label>
-                <input type="tel" id="phone_confirm" name="phone_confirm" required placeholder="0812345678" class="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none">
+                <label class="block text-slate-700 font-semibold mb-1">เบอร์โทรศัพท์ที่ใช้ลงชื่อ เพื่อยืนยัน</label>
+                <input type="tel" id="phone_confirm" name="phone_confirm" required placeholder="0812345678" class="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm outline-none focus:ring-2 focus:ring-slate-800">
             </div>
 
-            <div class="flex gap-2 pt-1">
-                <button type="button" onclick="closeCancelModal()" class="flex-1 py-1.5 text-slate-600 bg-slate-100 rounded-lg">ปิด</button>
-                <button type="submit" id="confirmCancelBtn" class="flex-1 py-1.5 text-white bg-rose-600 hover:bg-rose-700 rounded-lg font-medium">ยืนยันยกเลิก</button>
+            <div class="flex gap-2 pt-2">
+                <button type="button" onclick="closeCancelModal()" class="flex-1 py-2 text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl font-semibold transition">ปิด</button>
+                <button type="submit" id="confirmCancelBtn" class="flex-1 py-2 text-white bg-rose-600 hover:bg-rose-700 rounded-xl font-semibold transition shadow-xs">ยืนยันยกเลิก</button>
             </div>
         </form>
     </div>
@@ -438,20 +490,20 @@ require_once __DIR__ . '/includes/header.php';
             return;
         }
 
-        let html = '<div class="divide-y divide-slate-100 text-xs">';
+        let html = '<div class="divide-y divide-slate-100 text-xs sm:text-sm">';
         results.forEach(r => {
             html += `
-                <div class="p-2.5 hover:bg-slate-50 cursor-pointer transition flex items-center justify-between gap-3" 
+                <div class="p-3 hover:bg-slate-50 cursor-pointer transition flex items-center justify-between gap-3" 
                      onclick="selectSuggestion('${escapeHtml(r.name)}')">
                     <div>
                         <div class="font-semibold text-slate-900">${highlightMatch(r.name, query)}</div>
-                        <div class="text-[11px] text-slate-400">เบอร์: ${r.phone}</div>
+                        <div class="text-xs text-slate-400">เบอร์: ${r.phone}</div>
                     </div>
                     <div class="text-right">
-                        <span class="inline-block bg-slate-100 text-slate-700 font-semibold text-[11px] px-2 py-0.5 rounded">
+                        <span class="inline-block bg-slate-100 text-slate-700 font-semibold text-xs px-2 py-0.5 rounded">
                             ${escapeHtml(r.vehicle_name)}
                         </span>
-                        <div class="text-[10px] text-slate-400">ที่นั่งเบอร์ ${r.seat_number}</div>
+                        <div class="text-[11px] text-slate-400">ที่นั่งเบอร์ ${r.seat_number}</div>
                     </div>
                 </div>
             `;
@@ -471,7 +523,7 @@ require_once __DIR__ . '/includes/header.php';
     function highlightMatch(text, query) {
         if (!query) return escapeHtml(text);
         const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-        return escapeHtml(text).replace(regex, '<mark class="bg-amber-100 text-slate-900 px-0.5 rounded">$1</mark>');
+        return escapeHtml(text).replace(regex, '<mark class="bg-amber-100 text-slate-900 px-0.5 rounded font-semibold">$1</mark>');
     }
 
     function escapeHtml(str) {
@@ -520,6 +572,71 @@ require_once __DIR__ . '/includes/header.php';
             btn.disabled = false;
         }
     }
+
+    // Item 8: Live Monitoring Auto-Refresh Logic
+    let refreshTimer = null;
+    let countdown = 30;
+
+    function updateLastTime() {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' น.';
+        const el = document.getElementById('lastUpdatedTime');
+        if (el) el.textContent = 'อัปเดตล่าสุด: ' + timeStr;
+    }
+
+    function setLiveRefresh(seconds) {
+        seconds = parseInt(seconds);
+        localStorage.setItem('car_check_refresh_interval', seconds);
+        if (refreshTimer) clearInterval(refreshTimer);
+        
+        const dot = document.getElementById('liveDot');
+        const badge = document.getElementById('refreshTimerBadge');
+        
+        if (seconds <= 0) {
+            if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-slate-300';
+            if (badge) {
+                badge.textContent = 'ปิดมอนิเตอร์';
+                badge.className = 'text-[11px] bg-slate-100 text-slate-500 font-medium px-2.5 py-0.5 rounded-full border border-slate-200';
+            }
+            return;
+        }
+
+        if (dot) dot.className = 'w-3.5 h-3.5 rounded-full bg-emerald-500 live-dot';
+        if (badge) {
+            badge.textContent = `อัปเดตทุก ${seconds} วิ`;
+            badge.className = 'text-[11px] bg-emerald-50 text-emerald-700 font-semibold px-2.5 py-0.5 rounded-full border border-emerald-200';
+        }
+
+        countdown = seconds;
+        refreshTimer = setInterval(() => {
+            countdown--;
+            if (countdown <= 0) {
+                manualRefreshNow();
+            }
+        }, 1000);
+    }
+
+    function manualRefreshNow() {
+        const icon = document.getElementById('refreshIcon');
+        if (icon) icon.classList.add('fa-spin');
+        sessionStorage.setItem('car_check_scroll_pos', window.scrollY);
+        window.location.reload();
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+        updateLastTime();
+        const savedScroll = sessionStorage.getItem('car_check_scroll_pos');
+        if (savedScroll !== null) {
+            window.scrollTo(0, parseInt(savedScroll));
+            sessionStorage.removeItem('car_check_scroll_pos');
+        }
+        const savedInterval = localStorage.getItem('car_check_refresh_interval') !== null 
+            ? parseInt(localStorage.getItem('car_check_refresh_interval')) 
+            : 30; // default 30s
+        const selectEl = document.getElementById('refreshInterval');
+        if (selectEl) selectEl.value = savedInterval;
+        setLiveRefresh(savedInterval);
+    });
 </script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

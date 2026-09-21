@@ -143,8 +143,8 @@ require_once __DIR__ . '/includes/header.php';
                 <div class="grid grid-cols-1 sm:grid-cols-12 gap-3.5 ml-0 sm:ml-7">
                     <!-- คำนำหน้า -->
                     <div class="sm:col-span-4">
-                        <label class="block text-xs font-medium text-slate-700 mb-1">คำนำหน้า <span class="text-rose-500">*</span></label>
-                        <select name="prefix" id="prefixSelect" onchange="togglePrefixOther(this.value)" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none">
+                        <label class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">คำนำหน้า <span class="text-rose-500">*</span></label>
+                        <select name="prefix" id="prefixSelect" onchange="togglePrefixOther(this.value)" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm sm:text-base text-slate-900 focus:bg-white focus:ring-2 focus:ring-slate-800 focus:border-slate-800 outline-none">
                             <option value="พระ">พระ</option>
                             <option value="พระมหา">พระมหา</option>
                             <option value="สามเณร">สามเณร</option>
@@ -154,48 +154,48 @@ require_once __DIR__ . '/includes/header.php';
                             <option value="เด็กชาย">เด็กชาย</option>
                             <option value="other">อื่นๆ (ระบุ)</option>
                         </select>
-                        <input type="text" id="prefixCustom" placeholder="ระบุคำนำหน้า" class="w-full mt-1.5 px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs hidden">
+                        <input type="text" id="prefixCustom" placeholder="ระบุคำนำหน้า" class="w-full mt-2 px-3.5 py-2 bg-white border border-slate-300 rounded-xl text-sm hidden">
                     </div>
 
                     <!-- ชื่อ -->
                     <div class="sm:col-span-4">
-                        <label class="block text-xs font-medium text-slate-700 mb-1">ชื่อ <span class="text-rose-500">*</span></label>
+                        <label class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">ชื่อ <span class="text-rose-500">*</span></label>
                         <input type="text" 
                                name="first_name" 
                                required 
                                pattern="^[a-zA-Z\u0E01-\u0E5B\s\.\-]{2,50}$"
                                title="กรุณากรอกชื่อเป็นตัวอักษรภาษาไทยหรือภาษาอังกฤษอย่างน้อย 2 ตัวอักษร"
                                placeholder="เช่น บุญช่วย หรือ สมชาย" 
-                               class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition">
+                               class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-800 focus:border-slate-800 outline-none transition">
                     </div>
 
                     <!-- ฉายา / นามสกุล -->
                     <div class="sm:col-span-4">
-                        <label class="block text-xs font-medium text-slate-700 mb-1">ฉายา (หรือนามสกุล) <span class="text-rose-500">*</span></label>
+                        <label class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">ฉายา (หรือนามสกุล) <span class="text-rose-500">*</span></label>
                         <input type="text" 
                                name="last_name_or_nickname" 
                                required 
                                pattern="^[a-zA-Z\u0E01-\u0E5B\s\.\-]{2,50}$"
                                title="กรุณากรอกฉายาหรือนามสกุลเป็นตัวอักษร"
                                placeholder="เช่น ธมฺมรกฺขิโต หรือ ใจดี" 
-                               class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition">
+                               class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-800 focus:border-slate-800 outline-none transition">
                     </div>
 
                     <!-- อายุ -->
                     <div class="sm:col-span-4">
-                        <label class="block text-xs font-medium text-slate-700 mb-1">อายุ (ปี) <span class="text-rose-500">*</span></label>
+                        <label class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">อายุ (ปี) <span class="text-rose-500">*</span></label>
                         <input type="number" 
                                name="age" 
                                required 
                                min="5" 
                                max="120" 
                                placeholder="เช่น 30" 
-                               class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition">
+                               class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-800 focus:border-slate-800 outline-none transition">
                     </div>
 
                     <!-- เบอร์โทร -->
                     <div class="sm:col-span-8">
-                        <label class="block text-xs font-medium text-slate-700 mb-1">เบอร์โทรศัพท์มือถือ <span class="text-rose-500">*</span></label>
+                        <label class="block text-xs sm:text-sm font-semibold text-slate-700 mb-1.5">เบอร์โทรศัพท์มือถือ <span class="text-rose-500">*</span></label>
                         <input type="tel" 
                                name="phone" 
                                required 
@@ -205,7 +205,7 @@ require_once __DIR__ . '/includes/header.php';
                                inputmode="numeric"
                                title="กรุณากรอกเบอร์โทรศัพท์ 9-10 หลัก (ขึ้นต้นด้วย 0)"
                                placeholder="เช่น 0812345678 (9-10 หลัก)" 
-                               class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition font-mono">
+                               class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm sm:text-base text-slate-900 placeholder-slate-400 focus:bg-white focus:ring-2 focus:ring-slate-800 focus:border-slate-800 outline-none transition font-mono">
                     </div>
                 </div>
             </div>
@@ -263,23 +263,23 @@ require_once __DIR__ . '/includes/header.php';
                 </h2>
                 <p class="text-xs text-slate-400 mb-3 ml-7">ระบุความประสงค์ในการเดินทาง</p>
 
-                <div class="space-y-2 ml-0 sm:ml-7 text-xs">
-                    <label class="flex items-center space-x-2.5 p-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
-                        <input type="radio" name="travel_type" value="เดินทางไป และ เดินภาพกลับ" checked required class="w-4 h-4 text-slate-900 focus:ring-slate-900">
+                <div class="space-y-2.5 ml-0 sm:ml-7 text-xs sm:text-sm">
+                    <label class="flex items-center space-x-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                        <input type="radio" name="travel_type" value="เดินทางไป และ เดินทางกลับ" checked required class="w-4 h-4 text-slate-900 focus:ring-slate-900">
                         <span class="font-medium text-slate-800">1. เดินทางไป และ เดินทางกลับ</span>
                     </label>
-                    <label class="flex items-center space-x-2.5 p-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                    <label class="flex items-center space-x-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
                         <input type="radio" name="travel_type" value="เดินทางไปอย่างเดียว" class="w-4 h-4 text-slate-900 focus:ring-slate-900">
                         <span class="font-medium text-slate-800">2. เดินทางไปอย่างเดียว</span>
                     </label>
-                    <label class="flex items-center space-x-2.5 p-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                    <label class="flex items-center space-x-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
                         <input type="radio" name="travel_type" value="เดินทางกลับอย่างเดียว" class="w-4 h-4 text-slate-900 focus:ring-slate-900">
                         <span class="font-medium text-slate-800">3. เดินทางกลับอย่างเดียว</span>
                     </label>
-                    <label class="flex items-center space-x-2.5 p-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                    <label class="flex items-center space-x-3 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
                         <input type="radio" name="travel_type" value="other" id="travelOtherRadio" class="w-4 h-4 text-slate-900 focus:ring-slate-900">
-                        <span class="font-medium text-slate-800">อื่นๆ:</span>
-                        <input type="text" id="travelOtherText" placeholder="ระบุเพิ่มเติม เช่น มีคนกลับแทน" onfocus="document.getElementById('travelOtherRadio').checked = true" class="border-b border-slate-300 focus:border-slate-900 outline-none px-2 py-0.5 text-xs flex-1 max-w-xs">
+                        <span class="font-medium text-slate-800 shrink-0">อื่นๆ:</span>
+                        <input type="text" id="travelOtherText" placeholder="ระบุเพิ่มเติม เช่น มีคนกลับแทน" onfocus="document.getElementById('travelOtherRadio').checked = true" class="border-b border-slate-300 focus:border-slate-900 outline-none px-2 py-0.5 text-xs sm:text-sm flex-1 max-w-xs bg-transparent">
                     </label>
                 </div>
             </div>

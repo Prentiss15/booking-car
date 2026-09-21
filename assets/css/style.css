@@ -1,20 +1,46 @@
-/* assets/css/style.css */
+/* assets/css/style.css - Refined Monastic & Modern UI */
 
-.seat-btn {
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    user-select: none;
+:root {
+    --primary: #1e293b;
+    --primary-light: #334155;
+    --accent: #f59e0b;
+    --emerald: #059669;
 }
 
-.seat-btn:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+body {
+    -webkit-tap-highlight-color: transparent;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    word-break: keep-all;
+    overflow-wrap: break-word;
+}
+
+/* Prevent iOS input auto-zoom by ensuring 16px min size on mobile */
+@media screen and (max-width: 640px) {
+    input[type="text"],
+    input[type="tel"],
+    input[type="number"],
+    select,
+    textarea {
+        font-size: 16px !important;
+    }
+}
+
+/* Seat buttons */
+.seat-btn {
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.seat-btn:active:not(:disabled) {
+    transform: scale(0.96);
 }
 
 .seat-available {
-    background-color: #ecfdf5;
-    border-color: #34d399;
-    color: #065f46;
+    background-color: #f0fdf4;
+    border-color: #86efac;
+    color: #166534;
 }
 
 .seat-available:hover {
@@ -24,18 +50,18 @@
 }
 
 .seat-booked {
-    background-color: #f1f5f9;
-    border-color: #cbd5e1;
+    background-color: #f8fafc;
+    border-color: #e2e8f0;
     color: #94a3b8;
     cursor: not-allowed;
     opacity: 0.85;
 }
 
 .seat-selected {
-    background-color: #4f46e5 !important;
-    border-color: #3730a3 !important;
+    background-color: #2563eb !important;
+    border-color: #1d4ed8 !important;
     color: #ffffff !important;
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.4);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
     transform: scale(1.05);
 }
 
@@ -46,7 +72,7 @@
 }
 
 ::-webkit-scrollbar-track {
-    background: #f1f5f9;
+    background: #f8fafc;
 }
 
 ::-webkit-scrollbar-thumb {
@@ -65,5 +91,20 @@
 
 .vehicle-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
+}
+
+/* Pulse indicator for live monitoring */
+@keyframes live-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+.live-dot {
+    animation: live-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Mobile Bottom Navigation Bar Safe Area */
+.mobile-nav-safe {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
 }

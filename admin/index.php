@@ -272,6 +272,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $msg = 'รีเซ็ตรหัสผ่านของผู้ดูแลเรียบร้อยแล้ว';
         }
 
+    } elseif ($action === 'delete_admin_user' && $isSuper) {
+        // Superadmin ลบบัญชีผู้ดูแลคนไหนก็ได้
+        $targetAdminId = (int)($_POST['target_admin_id'] ?? 0);
+        
+        if ($targetAdminId === (int)$currentAdmin['id']) {
+            $msg = 'ไม่สามารถลบบัญชีของตนเองที่กำลังล็อกอินอยู่ได้';
+            $msgType = 'error';
+        } elseif ($targetAdminId > 0) {
+            $stmtGet = $db->prepare("SELECT name, username FROM admins WHERE id = ?");
+            $stmtGet->execute([$targetAdminId]);
+            $targetUser = $stmtGet->fetch();
+
+            if ($targetUser) {
+                $stmtDel = $db->prepare("DELETE FROM admins WHERE id = ?");
+                $stmtDel->execute([$targetAdminId]);
+                $msg = "ลบบัญชีผู้ดูแลคุณ {$targetUser['name']} (@{$targetUser['username']}) เรียบร้อยแล้ว";
+            } else {
+                $msg = 'ไม่พบข้อมูลบัญชีผู้ดูแลที่ต้องการลบ';
+                $msgType = 'error';
+            }
+        }
+
     } elseif ($action === 'delete_booking') {
         $bookingId = (int)($_POST['booking_id'] ?? 0);
         $stmt = $db->prepare("DELETE FROM bookings WHERE id = ?");
@@ -649,7 +671,7 @@ require_once __DIR__ . '/../includes/header.php';
                                     <th class="py-2 px-3">Username</th>
                                     <th class="py-2 px-3">ระดับสิทธิ์</th>
                                     <th class="py-2 px-3 font-mono">รหัสผ่าน (Password)</th>
-                                    <th class="py-2 px-3 text-center">แก้ไขรหัส</th>
+                                    <th class="py-2 px-3 text-center">จัดการ</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-amber-100">
@@ -667,9 +689,22 @@ require_once __DIR__ . '/../includes/header.php';
                                             <span class="password-plain font-bold text-indigo-700 hidden"><?= clean($adm['plain_password'] ?: '(ไม่มีบันทึก)') ?></span>
                                         </td>
                                         <td class="py-2 px-3 text-center">
-                                            <button type="button" onclick="openResetPasswordPrompt(<?= $adm['id'] ?>, '<?= clean($adm['username']) ?>')" class="text-indigo-600 hover:text-indigo-900 underline text-[11px]">
-                                                ตั้งรหัสใหม่
-                                            </button>
+                                            <div class="flex items-center justify-center space-x-2">
+                                                <button type="button" onclick="openResetPasswordPrompt(<?= $adm['id'] ?>, '<?= clean($adm['username']) ?>')" class="text-indigo-600 hover:text-indigo-900 underline text-[11px]" title="แก้ไขรหัสผ่าน">
+                                                    เปลี่ยนรหัส
+                                                </button>
+                                                <?php if ((int)$adm['id'] !== (int)$currentAdmin['id']): ?>
+                                                    <form method="POST" onsubmit="return confirm('ยืนยันลบบัญชีผู้ดูแล <?= clean($adm['name']) ?> (@<?= clean($adm['username']) ?>) หรือไม่?')" class="inline">
+                                                        <input type="hidden" name="action" value="delete_admin_user">
+                                                        <input type="hidden" name="target_admin_id" value="<?= $adm['id'] ?>">
+                                                        <button type="submit" class="text-rose-500 hover:text-rose-700 p-1 transition" title="ลบบัญชีนี้">
+                                                            <i class="fa-solid fa-trash-can text-xs"></i>
+                                                        </button>
+                                                    </form>
+                                                <?php else: ?>
+                                                    <span class="text-slate-300 text-[10px] italic">(คุณ)</span>
+                                                <?php endif; ?>
+                                            </div>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>

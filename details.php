@@ -29,6 +29,7 @@ if (!$selectedTrip && !empty($allTrips)) {
 // ตัวกรอง
 $filterVehicleId = isset($_GET['vehicle_id']) ? (int)$_GET['vehicle_id'] : 0;
 $filterTravelType = clean($_GET['travel_type'] ?? '');
+$filterPrefix = clean($_GET['prefix'] ?? '');
 $searchQuery = clean($_GET['q'] ?? '');
 
 // ดึงรายการรถเพื่อทำตัวเลือก
@@ -56,6 +57,20 @@ if ($filterVehicleId > 0) {
 if (!empty($filterTravelType)) {
     $sql .= " AND b.travel_type LIKE ?";
     $params[] = "%{$filterTravelType}%";
+}
+
+if (!empty($filterPrefix)) {
+    if ($filterPrefix === 'พระ') {
+        $sql .= " AND b.prefix = 'พระ'";
+    } elseif ($filterPrefix === 'พระมหา') {
+        $sql .= " AND b.prefix = 'พระมหา'";
+    } elseif ($filterPrefix === 'สามเณร') {
+        $sql .= " AND b.prefix = 'สามเณร'";
+    } elseif ($filterPrefix === 'ฆราวาส') {
+        $sql .= " AND b.prefix IN ('นาย', 'นาง', 'นางสาว', 'เด็กชาย', 'เด็กหญิง')";
+    } elseif ($filterPrefix === 'อื่นๆ') {
+        $sql .= " AND (b.prefix NOT IN ('พระ', 'พระมหา', 'สามเณร', 'นาย', 'นาง', 'นางสาว', 'เด็กชาย', 'เด็กหญิง') OR b.prefix IS NULL OR b.prefix = '')";
+    }
 }
 
 if (!empty($searchQuery)) {
@@ -96,15 +111,17 @@ if (isset($_GET['export']) && $_GET['export'] === 'csv') {
     header('Content-Disposition: attachment; filename=รายงานผู้โดยสาร_' . date('Ymd_His') . '.csv');
     echo "\xEF\xBB\xBF";
     $output = fopen('php://output', 'w');
-    fputcsv($output, ['ลำดับที่', 'คันรถ', 'ประเภทรถ', 'ที่นั่ง', 'คำนำหน้า', 'ชื่อ', 'ฉายา/นามสกุล', 'อายุ', 'เบอร์โทรศัพท์', 'การเดินทาง', 'หมายเหตุผู้ดูแล', 'วันที่ลงชื่อ']);
+    fputcsv($output, ['ลำดับที่', 'คันรถ', 'ประเภทรถ', 'ที่นั่ง', 'ชื่อเต็ม_ข้อมูลดิบ (คำนำหน้า+ชื่อ ฉายา/นามสกุล)', 'คำนำหน้า', 'ชื่อ', 'ฉายา/นามสกุล', 'อายุ', 'เบอร์โทรศัพท์', 'การเดินทาง', 'หมายเหตุผู้ดูแล', 'วันที่ลงชื่อ']);
     
     $i = 1;
     foreach ($passengers as $p) {
+        $rawFullName = !empty($p['first_name']) ? trim($p['prefix'] . $p['first_name'] . ' ' . $p['last_name_or_nickname']) : $p['passenger_name'];
         fputcsv($output, [
             $i++,
             $p['vehicle_name'],
             $p['vehicle_type_label'] ?? '',
             $p['seat_number'],
+            $rawFullName,
             $p['prefix'],
             $p['first_name'],
             $p['last_name_or_nickname'],
@@ -176,7 +193,8 @@ require_once __DIR__ . '/includes/header.php';
         <form method="GET" class="grid grid-cols-1 sm:grid-cols-12 gap-3">
             <input type="hidden" name="trip_id" value="<?= $selectedTripId ?>">
 
-            <div class="sm:col-span-5 relative">
+            <!-- Search input (4 cols) -->
+            <div class="sm:col-span-4 relative">
                 <input type="text" 
                        name="q" 
                        value="<?= clean($searchQuery) ?>" 
@@ -185,7 +203,20 @@ require_once __DIR__ . '/includes/header.php';
                 <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
             </div>
 
-            <div class="sm:col-span-3">
+            <!-- Prefix Filter (2 cols) -->
+            <div class="sm:col-span-2">
+                <select name="prefix" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
+                    <option value="">-- คำนำหน้าทั้งหมด --</option>
+                    <option value="พระ" <?= $filterPrefix === 'พระ' ? 'selected' : '' ?>>พระ</option>
+                    <option value="พระมหา" <?= $filterPrefix === 'พระมหา' ? 'selected' : '' ?>>พระมหา</option>
+                    <option value="สามเณร" <?= $filterPrefix === 'สามเณร' ? 'selected' : '' ?>>สามเณร</option>
+                    <option value="ฆราวาส" <?= $filterPrefix === 'ฆราวาส' ? 'selected' : '' ?>>ฆราวาส (นาย/นาง/น.ส.)</option>
+                    <option value="อื่นๆ" <?= $filterPrefix === 'อื่นๆ' ? 'selected' : '' ?>>อื่นๆ</option>
+                </select>
+            </div>
+
+            <!-- Vehicle Filter (2 cols) -->
+            <div class="sm:col-span-2">
                 <select name="vehicle_id" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
                     <option value="0">-- ทุกคันรถ --</option>
                     <?php foreach ($vehicles as $v): ?>
@@ -196,6 +227,7 @@ require_once __DIR__ . '/includes/header.php';
                 </select>
             </div>
 
+            <!-- Travel Type Filter (2 cols) -->
             <div class="sm:col-span-2">
                 <select name="travel_type" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
                     <option value="">-- การเดินทางทั้งหมด --</option>
@@ -204,11 +236,12 @@ require_once __DIR__ . '/includes/header.php';
                 </select>
             </div>
 
+            <!-- Buttons (2 cols) -->
             <div class="sm:col-span-2 flex gap-2">
                 <button type="submit" class="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-medium py-2 rounded-lg text-xs sm:text-sm transition">
                     กรองข้อมูล
                 </button>
-                <?php if (!empty($searchQuery) || $filterVehicleId > 0 || !empty($filterTravelType)): ?>
+                <?php if (!empty($searchQuery) || $filterVehicleId > 0 || !empty($filterTravelType) || !empty($filterPrefix)): ?>
                     <a href="?trip_id=<?= $selectedTripId ?>" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs flex items-center justify-center">
                         ล้าง
                     </a>
@@ -226,9 +259,7 @@ require_once __DIR__ . '/includes/header.php';
                         <th class="py-3 px-4 w-12 text-center">#</th>
                         <th class="py-3 px-4">คันรถ / ชนิดรถ</th>
                         <th class="py-3 px-3 text-center w-16">ที่นั่ง</th>
-                        <th class="py-3 px-3">คำนำหน้า</th>
-                        <th class="py-3 px-4">ชื่อ</th>
-                        <th class="py-3 px-4">ฉายา / นามสกุล</th>
+                        <th class="py-3 px-4">ชื่อ-ฉายา/นามสกุล (ข้อมูลดิบพร้อมคัดลอก)</th>
                         <th class="py-3 px-3 text-center">อายุ</th>
                         <th class="py-3 px-4 text-center">เบอร์โทรศัพท์</th>
                         <th class="py-3 px-4">การเดินทาง</th>
@@ -239,7 +270,7 @@ require_once __DIR__ . '/includes/header.php';
                 <tbody class="divide-y divide-slate-100">
                     <?php if (empty($passengers)): ?>
                         <tr>
-                            <td colspan="11" class="py-12 text-center text-slate-400">
+                            <td colspan="9" class="py-12 text-center text-slate-400">
                                 <i class="fa-regular fa-folder-open text-2xl mb-2 block text-slate-300"></i>
                                 <span>ไม่พบข้อมูลตามเงื่อนไขที่ระบุ</span>
                             </td>
@@ -248,6 +279,7 @@ require_once __DIR__ . '/includes/header.php';
                         <?php foreach ($passengers as $idx => $p): 
                             $tType = $p['travel_type'] ?? 'เดินทางไป และ เดินทางกลับ';
                             $isRoundTrip = mb_stripos($tType, 'กลับ') !== false && mb_stripos($tType, 'ไป') !== false;
+                            $rawFullName = !empty($p['first_name']) ? trim($p['prefix'] . $p['first_name'] . ' ' . $p['last_name_or_nickname']) : $p['passenger_name'];
                         ?>
                             <tr class="hover:bg-slate-50/70 transition">
                                 <td class="py-3 px-4 text-center font-mono text-slate-400 text-xs">
@@ -262,14 +294,21 @@ require_once __DIR__ . '/includes/header.php';
                                         <?= $p['seat_number'] ?>
                                     </span>
                                 </td>
-                                <td class="py-3 px-3 text-slate-600">
-                                    <?= clean($p['prefix']) ?: '-' ?>
-                                </td>
-                                <td class="py-3 px-4 font-semibold text-slate-900">
-                                    <?= clean($p['first_name'] ?: $p['passenger_name']) ?>
-                                </td>
-                                <td class="py-3 px-4 text-slate-700">
-                                    <?= clean($p['last_name_or_nickname']) ?: '-' ?>
+                                <td class="py-3 px-4">
+                                    <div class="flex items-center space-x-1.5">
+                                        <span class="font-bold text-slate-900 text-xs sm:text-sm select-all">
+                                            <?= clean($rawFullName) ?>
+                                        </span>
+                                        <button type="button" 
+                                                onclick="copyRawText('<?= htmlspecialchars(addslashes($rawFullName), ENT_QUOTES) ?>', this)" 
+                                                class="text-slate-400 hover:text-indigo-600 p-1 text-xs transition rounded hover:bg-slate-100" 
+                                                title="คลิกเพื่อคัดลอกชื่อไปกรอก">
+                                            <i class="fa-regular fa-copy"></i>
+                                        </button>
+                                    </div>
+                                    <span class="text-[10px] text-slate-400 font-normal block mt-0.5">
+                                        <?= clean($p['prefix']) ?> • <?= clean($p['first_name']) ?> • <?= clean($p['last_name_or_nickname']) ?>
+                                    </span>
                                 </td>
                                 <td class="py-3 px-3 text-center font-mono text-slate-600">
                                     <?= clean($p['age']) ?: '-' ?>
@@ -305,5 +344,25 @@ require_once __DIR__ . '/includes/header.php';
     </div>
 
 </div>
+
+<script>
+function copyRawText(text, btn) {
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+            const icon = btn.querySelector('i');
+            if (icon) {
+                icon.className = 'fa-solid fa-check text-emerald-600';
+                setTimeout(() => {
+                    icon.className = 'fa-regular fa-copy';
+                }, 1500);
+            }
+        }).catch(() => {
+            prompt('คัดลอกข้อความด้านล่างนี้ได้เลยครับ:', text);
+        });
+    } else {
+        prompt('คัดลอกข้อความด้านล่างนี้ได้เลยครับ:', text);
+    }
+}
+</script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

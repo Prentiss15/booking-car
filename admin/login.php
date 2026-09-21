@@ -55,11 +55,13 @@ require_once __DIR__ . '/../includes/header.php';
     <div class="bg-white rounded-3xl p-8 sm:p-10 max-w-md w-full shadow-xl border border-slate-200">
         
         <div class="text-center mb-8">
-            <div class="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center mx-auto text-2xl shadow-inner mb-4">
-                <i class="fa-solid fa-shield-halved"></i>
+            <div class="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 text-amber-400 flex items-center justify-center mx-auto shadow-md mb-4 ring-4 ring-slate-100">
+                <svg class="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                </svg>
             </div>
-            <h1 class="text-2xl font-extrabold text-slate-900">เข้าสู่ระบบผู้ดูแล</h1>
-            <p class="text-xs text-slate-500 mt-1">ระบบจองรถต้นเดือน - ธุรการอาศรมบรรพชิต DCI</p>
+            <h1 class="text-xl font-bold text-slate-900 tracking-tight">เข้าสู่ระบบผู้ดูแล</h1>
+            <p class="text-xs text-slate-500 mt-1">ระบบจองรถต้นเดือน • ธุรการอาศรมบรรพชิต DCI</p>
         </div>
 
         <?php if (!empty($error)): ?>
@@ -79,9 +81,10 @@ require_once __DIR__ . '/../includes/header.php';
                     <input type="text" 
                            name="username" 
                            required 
-                           value="<?= clean($_POST['username'] ?? 'admin') ?>"
-                           placeholder="เช่น admin"
-                           class="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                           value="<?= clean($_POST['username'] ?? '') ?>"
+                           placeholder="ชื่อผู้ใช้งาน"
+                           autocomplete="username"
+                           class="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition">
                 </div>
             </div>
 
@@ -95,22 +98,13 @@ require_once __DIR__ . '/../includes/header.php';
                            name="password" 
                            required 
                            placeholder="กรอกรหัสผ่าน"
-                           class="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                           autocomplete="current-password"
+                           class="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition">
                 </div>
             </div>
 
-            <!-- Default login credentials hint -->
-            <div class="bg-indigo-50/70 border border-indigo-100 rounded-xl p-3 text-[11px] text-indigo-900 space-y-0.5">
-                <div class="font-bold flex items-center space-x-1">
-                    <i class="fa-solid fa-circle-info text-indigo-600"></i>
-                    <span>ข้อมูลเข้าสู่ระบบเริ่มต้น:</span>
-                </div>
-                <div>ชื่อผู้ใช้: <code class="font-bold text-indigo-950">admin</code> | รหัสผ่าน: <code class="font-bold text-indigo-950">admin123</code></div>
-                <div class="text-[10px] text-indigo-600 italic mt-0.5">(สามารถเข้าไปเปลี่ยนรหัสผ่านและเพิ่มผู้ดูแลคนอื่นได้ในระบบ)</div>
-            </div>
-
-            <button type="submit" class="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-md transition flex items-center justify-center space-x-2">
-                <i class="fa-solid fa-arrow-right-to-bracket"></i>
+            <button type="submit" class="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-semibold text-xs sm:text-sm shadow-xs transition flex items-center justify-center space-x-2">
+                <i class="fa-solid fa-arrow-right-to-bracket text-xs"></i>
                 <span>เข้าสู่ระบบ</span>
             </button>
         </form>

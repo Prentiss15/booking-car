@@ -39,8 +39,24 @@ try {
             exit;
         }
 
-        if (empty($phone) || strlen($phone) < 9) {
-            echo json_encode(['success' => false, 'message' => 'กรุณากรอกเบอร์โทรศัพท์ที่ถูกต้อง (9-10 หลัก)']);
+        // Server-side Regular Expression Validation
+        if (!empty($firstName) && !preg_match('/^[a-zA-Z\x{0E01}-\x{0E5B}\s\.\-]{2,60}$/u', $firstName)) {
+            echo json_encode(['success' => false, 'message' => 'ชื่อไม่ถูกต้อง กรุณากรอกเป็นตัวอักษร']);
+            exit;
+        }
+
+        if (!empty($lastNameOrNickname) && !preg_match('/^[a-zA-Z\x{0E01}-\x{0E5B}\s\.\-]{2,60}$/u', $lastNameOrNickname)) {
+            echo json_encode(['success' => false, 'message' => 'ฉายาหรือนามสกุลไม่ถูกต้อง กรุณากรอกเป็นตัวอักษร']);
+            exit;
+        }
+
+        if (!preg_match('/^0[0-9]{8,9}$/', $phone)) {
+            echo json_encode(['success' => false, 'message' => 'เบอร์โทรศัพท์มือถือไม่ถูกต้อง กรุณากรอก 9-10 หลัก ขึ้นต้นด้วย 0']);
+            exit;
+        }
+
+        if (!empty($age) && ((int)$age < 1 || (int)$age > 120)) {
+            echo json_encode(['success' => false, 'message' => 'อายุต้องอยู่ระหว่าง 1 ถึง 120 ปี']);
             exit;
         }
 

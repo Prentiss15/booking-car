@@ -77,22 +77,26 @@ require_once __DIR__ . '/includes/header.php';
                     </div>
                 <?php endif; ?>
 
-                <!-- Boarding Schedule -->
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs pt-1 text-slate-600">
-                    <div class="flex items-center space-x-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                        <span class="w-2 h-2 rounded-full bg-emerald-600"></span>
-                        <span class="font-medium text-slate-900">ขาไป:</span>
-                        <span><?= clean($selectedTrip['pickup_time_info'] ?? 'ขึ้นรถ 08.00 น.') ?></span>
+                <!-- Boarding Schedule (Mobile-Optimized: ไม่มีปัญหาคำตัด) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs pt-1 text-slate-600">
+                    <div class="flex items-start gap-2.5 bg-slate-50/90 p-3 rounded-xl border border-slate-100/90 leading-relaxed">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 mt-1 shrink-0"></span>
+                        <div class="min-w-0 flex-1">
+                            <span class="font-bold text-slate-900 shrink-0 inline-block mr-1 whitespace-nowrap">ขาไป:</span>
+                            <span class="text-slate-700"><?= clean($selectedTrip['pickup_time_info'] ?? 'ขึ้นรถ 08.00 น.') ?></span>
+                        </div>
                     </div>
-                    <div class="flex items-center space-x-2 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                        <span class="w-2 h-2 rounded-full bg-blue-600"></span>
-                        <span class="font-medium text-slate-900">ขากลับ:</span>
-                        <span><?= clean($selectedTrip['return_time_info'] ?? 'ขึ้นรถ 16.00 น.') ?></span>
+                    <div class="flex items-start gap-2.5 bg-slate-50/90 p-3 rounded-xl border border-slate-100/90 leading-relaxed">
+                        <span class="w-2.5 h-2.5 rounded-full bg-blue-500 mt-1 shrink-0"></span>
+                        <div class="min-w-0 flex-1">
+                            <span class="font-bold text-slate-900 shrink-0 inline-block mr-1 whitespace-nowrap">ขากลับ:</span>
+                            <span class="text-slate-700"><?= clean($selectedTrip['return_time_info'] ?? 'ขึ้นรถ 16.00 น.') ?></span>
+                        </div>
                     </div>
                 </div>
 
                 <?php if (!empty($selectedTrip['notice_red'])): ?>
-                    <div class="text-xs font-medium text-rose-700 bg-rose-50 border border-rose-200/80 p-2.5 rounded-lg">
+                    <div class="text-xs font-medium text-rose-700 bg-rose-50/80 border border-rose-200/80 p-3 rounded-xl leading-relaxed">
                         <i class="fa-solid fa-circle-info mr-1 text-rose-500"></i>
                         <span><?= clean($selectedTrip['notice_red']) ?></span>
                     </div>
@@ -156,25 +160,52 @@ require_once __DIR__ . '/includes/header.php';
                     <!-- ชื่อ -->
                     <div class="sm:col-span-4">
                         <label class="block text-xs font-medium text-slate-700 mb-1">ชื่อ <span class="text-rose-500">*</span></label>
-                        <input type="text" name="first_name" required placeholder="เช่น ประพันธ์" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none">
+                        <input type="text" 
+                               name="first_name" 
+                               required 
+                               pattern="^[a-zA-Z\u0E01-\u0E5B\s\.\-]{2,50}$"
+                               title="กรุณากรอกชื่อเป็นตัวอักษรภาษาไทยหรือภาษาอังกฤษอย่างน้อย 2 ตัวอักษร"
+                               placeholder="เช่น บุญช่วย หรือ สมชาย" 
+                               class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition">
                     </div>
 
                     <!-- ฉายา / นามสกุล -->
                     <div class="sm:col-span-4">
                         <label class="block text-xs font-medium text-slate-700 mb-1">ฉายา (หรือนามสกุล) <span class="text-rose-500">*</span></label>
-                        <input type="text" name="last_name_or_nickname" required placeholder="เช่น ชาติวฑฺฒโน" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none">
+                        <input type="text" 
+                               name="last_name_or_nickname" 
+                               required 
+                               pattern="^[a-zA-Z\u0E01-\u0E5B\s\.\-]{2,50}$"
+                               title="กรุณากรอกฉายาหรือนามสกุลเป็นตัวอักษร"
+                               placeholder="เช่น ธมฺมรกฺขิโต หรือ ใจดี" 
+                               class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition">
                     </div>
 
                     <!-- อายุ -->
                     <div class="sm:col-span-4">
                         <label class="block text-xs font-medium text-slate-700 mb-1">อายุ (ปี) <span class="text-rose-500">*</span></label>
-                        <input type="number" name="age" required min="1" max="120" placeholder="เช่น 35" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none">
+                        <input type="number" 
+                               name="age" 
+                               required 
+                               min="5" 
+                               max="120" 
+                               placeholder="เช่น 30" 
+                               class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition">
                     </div>
 
                     <!-- เบอร์โทร -->
                     <div class="sm:col-span-8">
                         <label class="block text-xs font-medium text-slate-700 mb-1">เบอร์โทรศัพท์มือถือ <span class="text-rose-500">*</span></label>
-                        <input type="tel" name="phone" required placeholder="เช่น 0812345678" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none">
+                        <input type="tel" 
+                               name="phone" 
+                               required 
+                               pattern="^0[0-9]{8,9}$"
+                               maxlength="10"
+                               minlength="9"
+                               inputmode="numeric"
+                               title="กรุณากรอกเบอร์โทรศัพท์ 9-10 หลัก (ขึ้นต้นด้วย 0)"
+                               placeholder="เช่น 0812345678 (9-10 หลัก)" 
+                               class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none transition font-mono">
                     </div>
                 </div>
             </div>
@@ -351,15 +382,52 @@ require_once __DIR__ . '/includes/header.php';
             const customPrefix = document.getElementById('prefixCustom').value.trim();
             if (!customPrefix) {
                 alert('กรุณาระบุคำนำหน้า');
+                document.getElementById('prefixCustom').focus();
                 return;
             }
             formData.set('prefix', customPrefix);
         }
 
+        const firstName = (formData.get('first_name') || '').trim();
+        const lastName = (formData.get('last_name_or_nickname') || '').trim();
+        const rawPhone = (formData.get('phone') || '').trim();
+        const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+        const age = parseInt(formData.get('age') || '0', 10);
+
+        // Regular Expressions สำหรับตรวจสอบความถูกต้อง
+        const nameRegex = /^[a-zA-Z\u0E01-\u0E5B\s\.\-]{2,50}$/;
+        const phoneRegex = /^0[0-9]{8,9}$/;
+
+        if (!nameRegex.test(firstName)) {
+            alert('กรุณากรอกชื่อให้ถูกต้อง (ต้องเป็นตัวอักษร 2 ตัวขึ้นไป และไม่มีตัวเลขหรืออักขระพิเศษ)');
+            document.querySelector('input[name="first_name"]').focus();
+            return;
+        }
+
+        if (!nameRegex.test(lastName)) {
+            alert('กรุณากรอกฉายาหรือนามสกุลให้ถูกต้อง (ต้องเป็นตัวอักษร และไม่มีตัวเลขหรืออักขระพิเศษ)');
+            document.querySelector('input[name="last_name_or_nickname"]').focus();
+            return;
+        }
+
+        if (isNaN(age) || age < 1 || age > 120) {
+            alert('กรุณาระบุอายุให้ถูกต้อง (ระหว่าง 1 ถึง 120 ปี)');
+            document.querySelector('input[name="age"]').focus();
+            return;
+        }
+
+        if (!phoneRegex.test(cleanPhone)) {
+            alert('กรุณากรอกเบอร์โทรศัพท์มือถือที่ถูกต้อง 9-10 หลัก (ขึ้นต้นด้วย 0 เช่น 0812345678)');
+            document.querySelector('input[name="phone"]').focus();
+            return;
+        }
+        formData.set('phone', cleanPhone);
+
         if (formData.get('travel_type') === 'other') {
             const customTravel = document.getElementById('travelOtherText').value.trim();
             if (!customTravel) {
                 alert('กรุณาระบุรายละเอียดการเดินทาง');
+                document.getElementById('travelOtherText').focus();
                 return;
             }
             formData.set('travel_type', customTravel);

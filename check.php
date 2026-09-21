@@ -174,7 +174,7 @@ require_once __DIR__ . '/includes/header.php';
                                name="q" 
                                autocomplete="off"
                                value="<?= clean($searchQuery) ?>" 
-                               placeholder="เช่น ประพันธ์, กตญาโณ, 082..." 
+                               placeholder="เช่น บุญช่วย, กตญาโณ, 082..." 
                                class="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-900 focus:border-slate-900 outline-none">
                         <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
                     </div>

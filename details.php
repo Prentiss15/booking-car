@@ -9,6 +9,42 @@ requireAdminLogin();
 $db = getDb();
 seedDemoDataIfEmpty($db);
 
+$msg = '';
+$msgType = 'success';
+
+// จัดการการแก้ไขข้อมูลผู้โดยสารเมื่อ admin ต้องการแก้ไขชื่อ ฉายา/นามสกุล เบอร์โทร
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_passenger') {
+    $bookingId = (int)($_POST['booking_id'] ?? 0);
+    $prefix = clean($_POST['prefix'] ?? '');
+    $firstName = clean($_POST['first_name'] ?? '');
+    $lastName = clean($_POST['last_name_or_nickname'] ?? '');
+    $phone = clean($_POST['phone'] ?? '');
+    $age = !empty($_POST['age']) ? clean($_POST['age']) : '';
+    $travelType = clean($_POST['travel_type'] ?? 'เดินทางไป และ เดินทางกลับ');
+    $adminNote = clean($_POST['admin_note'] ?? '');
+
+    if ($bookingId <= 0 || empty($firstName)) {
+        $msg = 'กรุณาระบุชื่อผู้ลงทะเบียนให้ถูกต้อง';
+        $msgType = 'error';
+    } else {
+        $phoneDigits = preg_replace('/[^0-9]/', '', $phone);
+        if (!empty($phone) && !preg_match('/^0[0-9]{8,9}$/', $phoneDigits)) {
+            $msg = 'เบอร์โทรศัพท์ไม่ถูกต้อง (ต้องขึ้นต้นด้วย 0 และมีความยาว 9-10 หลัก)';
+            $msgType = 'error';
+        } else {
+            $fullName = trim($prefix . $firstName . ' ' . $lastName);
+            $stmtUpdate = $db->prepare("
+                UPDATE bookings 
+                SET prefix = ?, first_name = ?, last_name_or_nickname = ?, passenger_name = ?, phone = ?, age = ?, travel_type = ?, admin_note = ?
+                WHERE id = ?
+            ");
+            $stmtUpdate->execute([$prefix, $firstName, $lastName, $fullName, $phone, $age, $travelType, $adminNote, $bookingId]);
+            $msg = "แก้ไขข้อมูลคุณ \"{$fullName}\" เรียบร้อยแล้ว";
+            $msgType = 'success';
+        }
+    }
+}
+
 // ดึงรอบ
 $stmtTrips = $db->query("SELECT * FROM trips ORDER BY trip_date DESC");
 $allTrips = $stmtTrips->fetchAll();
@@ -172,6 +208,14 @@ require_once __DIR__ . '/includes/header.php';
         </div>
     </div>
 
+    <!-- Alert Messages -->
+    <?php if (!empty($msg)): ?>
+        <div class="p-3.5 mb-6 rounded-xl flex items-center space-x-2.5 <?= $msgType === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200' ?>">
+            <i class="fa-solid <?= $msgType === 'success' ? 'fa-check text-emerald-600' : 'fa-triangle-exclamation text-rose-600' ?> text-sm"></i>
+            <span class="text-xs sm:text-sm font-medium"><?= $msg ?></span>
+        </div>
+    <?php endif; ?>
+
     <!-- Metrics Cards (ข้อ 3: เอาอายุเฉลี่ยออกแล้ว) -->
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div class="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
@@ -265,12 +309,13 @@ require_once __DIR__ . '/includes/header.php';
                         <th class="py-3 px-4">การเดินทาง</th>
                         <th class="py-3 px-4">หมายเหตุผู้ดูแล</th>
                         <th class="py-3 px-4 text-center">เวลาลงชื่อ</th>
+                        <th class="py-3 px-4 text-center w-24">จัดการ</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
                     <?php if (empty($passengers)): ?>
                         <tr>
-                            <td colspan="9" class="py-12 text-center text-slate-400">
+                            <td colspan="10" class="py-12 text-center text-slate-400">
                                 <i class="fa-regular fa-folder-open text-2xl mb-2 block text-slate-300"></i>
                                 <span>ไม่พบข้อมูลตามเงื่อนไขที่ระบุ</span>
                             </td>
@@ -297,7 +342,7 @@ require_once __DIR__ . '/includes/header.php';
                                 <td class="py-3 px-4">
                                     <div class="flex items-center space-x-1.5">
                                         <span class="font-bold text-slate-900 text-xs sm:text-sm select-all">
-                                            <?= clean($rawFullName) ?>
+                                             <?= clean($rawFullName) ?>
                                         </span>
                                         <button type="button" 
                                                 onclick="copyRawText('<?= htmlspecialchars(addslashes($rawFullName), ENT_QUOTES) ?>', this)" 
@@ -335,6 +380,26 @@ require_once __DIR__ . '/includes/header.php';
                                 <td class="py-3 px-4 text-center text-xs text-slate-400 font-mono">
                                     <?= date('d/m/y H:i', strtotime($p['created_at'])) ?>
                                 </td>
+                                <td class="py-3 px-4 text-center">
+                                    <button type="button" 
+                                            data-id="<?= $p['id'] ?>"
+                                            data-prefix="<?= htmlspecialchars($p['prefix'] ?? '', ENT_QUOTES) ?>"
+                                            data-firstname="<?= htmlspecialchars($p['first_name'] ?? '', ENT_QUOTES) ?>"
+                                            data-lastname="<?= htmlspecialchars($p['last_name_or_nickname'] ?? '', ENT_QUOTES) ?>"
+                                            data-fullname="<?= htmlspecialchars($rawFullName, ENT_QUOTES) ?>"
+                                            data-phone="<?= htmlspecialchars($p['phone'] ?? '', ENT_QUOTES) ?>"
+                                            data-age="<?= htmlspecialchars($p['age'] ?? '', ENT_QUOTES) ?>"
+                                            data-travel="<?= htmlspecialchars($p['travel_type'] ?? 'เดินทางไป และ เดินทางกลับ', ENT_QUOTES) ?>"
+                                            data-adminnote="<?= htmlspecialchars($p['admin_note'] ?? '', ENT_QUOTES) ?>"
+                                            data-vehicle="<?= htmlspecialchars($p['vehicle_name'] ?? '', ENT_QUOTES) ?>"
+                                            data-seat="<?= $p['seat_number'] ?>"
+                                            onclick="openEditPassengerModalFromBtn(this)" 
+                                            class="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs transition border border-indigo-200 shadow-2xs" 
+                                            title="แก้ไขข้อมูล (ชื่อ-ฉายา/นามสกุล, เบอร์โทร)">
+                                        <i class="fa-solid fa-pen-to-square text-[11px]"></i>
+                                        <span>แก้ไข</span>
+                                    </button>
+                                </td>
                             </tr>
                         <?php endforeach; ?>
                     <?php endif; ?>
@@ -343,6 +408,99 @@ require_once __DIR__ . '/includes/header.php';
         </div>
     </div>
 
+</div>
+
+<!-- Modal: แก้ไขข้อมูลผู้ลงชื่อ (สำหรับ Admin) -->
+<div id="editPassengerModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs hidden p-4 overflow-y-auto">
+    <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200 my-8 text-xs sm:text-sm" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between pb-3 border-b border-slate-200">
+            <div>
+                <h3 class="font-bold text-slate-900 text-sm sm:text-base flex items-center">
+                    <i class="fa-solid fa-user-pen text-indigo-600 mr-2"></i>
+                    <span>แก้ไขข้อมูลผู้ลงชื่อ</span>
+                </h3>
+                <p id="editModalSubtitle" class="text-xs text-slate-500 mt-0.5"></p>
+            </div>
+            <button type="button" onclick="closeEditPassengerModal()" class="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition">
+                <i class="fa-solid fa-xmark text-base"></i>
+            </button>
+        </div>
+
+        <form method="POST" class="mt-4 space-y-3.5" id="editPassengerForm">
+            <input type="hidden" name="action" value="edit_passenger">
+            <input type="hidden" id="editBookingId" name="booking_id" value="">
+
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                <!-- คำนำหน้า -->
+                <div class="sm:col-span-4">
+                    <label class="block text-slate-700 font-medium mb-1 text-xs">คำนำหน้า <span class="text-rose-500">*</span></label>
+                    <select id="editPrefix" name="prefix" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
+                        <option value="พระ">พระ</option>
+                        <option value="พระมหา">พระมหา</option>
+                        <option value="สามเณร">สามเณร</option>
+                        <option value="นาย">นาย</option>
+                        <option value="นาง">นาง</option>
+                        <option value="นางสาว">นางสาว</option>
+                        <option value="เด็กชาย">เด็กชาย</option>
+                        <option value="เด็กหญิง">เด็กหญิง</option>
+                        <option value="">(ไม่มีคำนำหน้า / อื่นๆ)</option>
+                    </select>
+                </div>
+
+                <!-- ชื่อ -->
+                <div class="sm:col-span-8">
+                    <label class="block text-slate-700 font-medium mb-1 text-xs">ชื่อ <span class="text-rose-500">*</span></label>
+                    <input type="text" id="editFirstName" name="first_name" required placeholder="เช่น บุญช่วย หรือ สมชาย" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
+                </div>
+            </div>
+
+            <!-- ฉายา / นามสกุล -->
+            <div>
+                <label class="block text-slate-700 font-medium mb-1 text-xs">ฉายา (พระ/สามเณร) หรือ นามสกุล (ฆราวาส)</label>
+                <input type="text" id="editLastName" name="last_name_or_nickname" placeholder="เช่น สุวฑฺฒโน หรือ ใจดี" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <!-- เบอร์โทร -->
+                <div>
+                    <label class="block text-slate-700 font-medium mb-1 text-xs">เบอร์โทรศัพท์ <span class="text-rose-500">*</span></label>
+                    <input type="tel" id="editPhone" name="phone" required placeholder="0812345678" pattern="^0[0-9]{8,9}$" title="เบอร์โทรศัพท์ 9-10 หลัก ขึ้นต้นด้วย 0" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
+                </div>
+
+                <!-- อายุ -->
+                <div>
+                    <label class="block text-slate-700 font-medium mb-1 text-xs">อายุ (ปี)</label>
+                    <input type="number" id="editAge" name="age" min="1" max="120" placeholder="เช่น 25" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-mono focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
+                </div>
+            </div>
+
+            <!-- การเดินทาง -->
+            <div>
+                <label class="block text-slate-700 font-medium mb-1 text-xs">ลักษณะการเดินทาง</label>
+                <select id="editTravelType" name="travel_type" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
+                    <option value="เดินทางไป และ เดินทางกลับ">เดินทางไป และ เดินทางกลับ</option>
+                    <option value="เดินทางไปอย่างเดียว">เดินทางไปอย่างเดียว</option>
+                    <option value="เดินทางกลับอย่างเดียว">เดินทางกลับอย่างเดียว</option>
+                </select>
+            </div>
+
+            <!-- หมายเหตุผู้ดูแล -->
+            <div>
+                <label class="block text-slate-700 font-medium mb-1 text-xs">หมายเหตุสำหรับผู้ดูแล</label>
+                <input type="text" id="editAdminNote" name="admin_note" placeholder="เช่น มีคนเดินทางแทน, แจ้งยกเลิก" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:bg-white focus:ring-1 focus:ring-slate-900 outline-none">
+            </div>
+
+            <div class="pt-4 flex items-center justify-end space-x-2.5 border-t border-slate-100">
+                <button type="button" onclick="closeEditPassengerModal()" class="px-4 py-2 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition">
+                    ยกเลิก
+                </button>
+                <button type="submit" class="px-4 py-2 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-lg shadow-xs transition flex items-center space-x-1.5">
+                    <i class="fa-solid fa-floppy-disk text-xs"></i>
+                    <span>บันทึกการแก้ไข</span>
+                </button>
+            </div>
+        </form>
+    </div>
 </div>
 
 <script>
@@ -363,6 +521,54 @@ function copyRawText(text, btn) {
         prompt('คัดลอกข้อความด้านล่างนี้ได้เลยครับ:', text);
     }
 }
+
+function openEditPassengerModalFromBtn(btn) {
+    const ds = btn.dataset;
+    document.getElementById('editBookingId').value = ds.id || '';
+    
+    // Prefix
+    const prefixSelect = document.getElementById('editPrefix');
+    prefixSelect.value = ds.prefix || '';
+    if (ds.prefix && prefixSelect.value !== ds.prefix) {
+        let customOpt = Array.from(prefixSelect.options).find(o => o.value === ds.prefix);
+        if (!customOpt) {
+            customOpt = new Option(ds.prefix, ds.prefix, true, true);
+            prefixSelect.add(customOpt);
+        }
+    }
+    
+    // Name
+    let firstName = ds.firstname;
+    if (!firstName && ds.fullname) {
+        firstName = ds.fullname;
+    }
+    document.getElementById('editFirstName').value = firstName || '';
+    document.getElementById('editLastName').value = ds.lastname || '';
+    document.getElementById('editPhone').value = ds.phone || '';
+    document.getElementById('editAge').value = ds.age || '';
+    document.getElementById('editTravelType').value = ds.travel || 'เดินทางไป และ เดินทางกลับ';
+    document.getElementById('editAdminNote').value = ds.adminnote || '';
+    
+    document.getElementById('editModalSubtitle').textContent = (ds.vehicle ? ds.vehicle : '') + ' • ที่นั่งที่ ' + (ds.seat ? ds.seat : '-');
+    
+    document.getElementById('editPassengerModal').classList.remove('hidden');
+}
+
+function closeEditPassengerModal() {
+    document.getElementById('editPassengerModal').classList.add('hidden');
+}
+
+// Close on backdrop click or ESC
+document.getElementById('editPassengerModal')?.addEventListener('click', function(e) {
+    if (e.target === this) {
+        closeEditPassengerModal();
+    }
+});
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeEditPassengerModal();
+    }
+});
 </script>
 
 <?php require_once __DIR__ . '/includes/footer.php'; ?>

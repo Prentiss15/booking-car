@@ -165,6 +165,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'move_or_edit_passenger') {
         $bookingId = (int)($_POST['booking_id'] ?? 0);
         $targetVehicleId = (int)($_POST['target_vehicle_id'] ?? 0);
+        $prefix = clean($_POST['prefix'] ?? '');
+        $firstName = clean($_POST['first_name'] ?? '');
+        $lastName = clean($_POST['last_name_or_nickname'] ?? '');
         $adminNote = clean($_POST['admin_note'] ?? '');
         $travelType = clean($_POST['travel_type'] ?? '');
         $phone = clean($_POST['phone'] ?? '');
@@ -176,6 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($curBooking) {
                 $oldVehId = (int)$curBooking['vehicle_id'];
+                $fullName = !empty($firstName) ? trim($prefix . $firstName . ' ' . $lastName) : $curBooking['passenger_name'];
 
                 if ($oldVehId !== $targetVehicleId) {
                     $stmtVeh = $db->prepare("SELECT total_seats, name FROM vehicles WHERE id = ?");
@@ -201,20 +205,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     } else {
                         $stmtUpdate = $db->prepare("
                             UPDATE bookings 
-                            SET vehicle_id = ?, seat_number = ?, admin_note = ?, travel_type = ?, phone = ?
+                            SET vehicle_id = ?, seat_number = ?, prefix = ?, first_name = ?, last_name_or_nickname = ?, passenger_name = ?, admin_note = ?, travel_type = ?, phone = ?
                             WHERE id = ?
                         ");
-                        $stmtUpdate->execute([$targetVehicleId, $newSeat, $adminNote, $travelType, $phone, $bookingId]);
-                        $msg = "ย้ายคุณ {$curBooking['passenger_name']} ไปยัง {$targetVeh['name']} ลำดับที่ {$newSeat} เรียบร้อยแล้ว";
+                        $stmtUpdate->execute([$targetVehicleId, $newSeat, $prefix, $firstName, $lastName, $fullName, $adminNote, $travelType, $phone, $bookingId]);
+                        $msg = "ย้ายและแก้ไขข้อมูลคุณ {$fullName} ไปยัง {$targetVeh['name']} ลำดับที่ {$newSeat} เรียบร้อยแล้ว";
                     }
                 } else {
                     $stmtUpdate = $db->prepare("
                         UPDATE bookings 
-                        SET admin_note = ?, travel_type = ?, phone = ?
+                        SET prefix = ?, first_name = ?, last_name_or_nickname = ?, passenger_name = ?, admin_note = ?, travel_type = ?, phone = ?
                         WHERE id = ?
                     ");
-                    $stmtUpdate->execute([$adminNote, $travelType, $phone, $bookingId]);
-                    $msg = "อัปเดตข้อมูลและหมายเหตุผู้ดูแลเรียบร้อยแล้ว";
+                    $stmtUpdate->execute([$prefix, $firstName, $lastName, $fullName, $adminNote, $travelType, $phone, $bookingId]);
+                    $msg = "อัปเดตข้อมูลคุณ {$fullName} เรียบร้อยแล้ว";
                 }
             }
         }
@@ -833,6 +837,32 @@ require_once __DIR__ . '/../includes/header.php';
             <input type="hidden" name="action" value="move_or_edit_passenger">
             <input type="hidden" id="moveBookingId" name="booking_id" value="">
 
+            <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+                <div class="sm:col-span-4">
+                    <label class="block text-slate-700 font-medium mb-1">คำนำหน้า</label>
+                    <select id="movePrefix" name="prefix" class="w-full px-2.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs">
+                        <option value="พระ">พระ</option>
+                        <option value="พระมหา">พระมหา</option>
+                        <option value="สามเณร">สามเณร</option>
+                        <option value="นาย">นาย</option>
+                        <option value="นาง">นาง</option>
+                        <option value="นางสาว">นางสาว</option>
+                        <option value="เด็กชาย">เด็กชาย</option>
+                        <option value="เด็กหญิง">เด็กหญิง</option>
+                        <option value="">(ไม่มี/อื่นๆ)</option>
+                    </select>
+                </div>
+                <div class="sm:col-span-8">
+                    <label class="block text-slate-700 font-medium mb-1">ชื่อ</label>
+                    <input type="text" id="moveFirstName" name="first_name" placeholder="ชื่อ" class="w-full px-2.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:bg-white outline-none">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-slate-700 font-medium mb-1">ฉายา (พระ) หรือ นามสกุล (ฆราวาส)</label>
+                <input type="text" id="moveLastName" name="last_name_or_nickname" placeholder="ฉายา หรือ นามสกุล" class="w-full px-2.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:bg-white outline-none">
+            </div>
+
             <div>
                 <label class="block text-slate-700 font-medium mb-1">คันรถที่จะให้เดินทาง (เลือกย้ายข้ามคันได้)</label>
                 <select id="moveTargetVehicleId" name="target_vehicle_id" class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:bg-white outline-none">
@@ -996,6 +1026,24 @@ require_once __DIR__ . '/../includes/header.php';
         document.getElementById('moveBookingId').value = passenger.id;
         document.getElementById('movePassengerName').textContent = passenger.passenger_name;
         document.getElementById('moveTargetVehicleId').value = passenger.vehicle_id;
+        
+        const prefixSelect = document.getElementById('movePrefix');
+        if (prefixSelect) {
+            prefixSelect.value = passenger.prefix || '';
+            if (passenger.prefix && prefixSelect.value !== passenger.prefix) {
+                let opt = new Option(passenger.prefix, passenger.prefix, true, true);
+                prefixSelect.add(opt);
+            }
+        }
+        const firstNameInput = document.getElementById('moveFirstName');
+        if (firstNameInput) {
+            firstNameInput.value = passenger.first_name || passenger.passenger_name || '';
+        }
+        const lastNameInput = document.getElementById('moveLastName');
+        if (lastNameInput) {
+            lastNameInput.value = passenger.last_name_or_nickname || '';
+        }
+
         document.getElementById('moveAdminNote').value = passenger.admin_note || '';
         document.getElementById('moveTravelType').value = passenger.travel_type || 'เดินทางไป และ เดินทางกลับ';
         document.getElementById('movePhone').value = passenger.phone || '';

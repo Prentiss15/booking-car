@@ -71,6 +71,7 @@ function getDb(): PDO {
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES => false,
+                PDO::ATTR_PERSISTENT => true, // Re-use TCP/SSL connection across requests
             ]);
         } else {
             // Fallback to SQLite
@@ -96,7 +97,12 @@ function getDb(): PDO {
             $db->exec('PRAGMA journal_mode = WAL;');
         }
         
-        initDatabase($db);
+        // Optimize: Only initialize once per container lifecycle
+        $flagFile = sys_get_temp_dir() . '/.car_db_ready_' . substr(md5($databaseUrl ?: 'sqlite'), 0, 8);
+        if (!file_exists($flagFile)) {
+            initDatabase($db);
+            @file_put_contents($flagFile, '1');
+        }
     }
     return $db;
 }
@@ -104,6 +110,14 @@ function getDb(): PDO {
 function initDatabase(PDO $db): void {
     $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
     $isPgsql = ($driver === 'pgsql');
+
+    // Quick probe: If table already exists in remote database, skip heavy DDL statements
+    try {
+        $probe = $db->query("SELECT 1 FROM trips LIMIT 1");
+        if ($probe !== false) {
+            return;
+        }
+    } catch (Throwable $e) {}
 
     if ($isPgsql) {
         // 1. Admins table (PostgreSQL)

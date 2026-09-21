@@ -163,9 +163,19 @@ function getVehicleHeaderStyle(int $vehicleNumber, ?string $color = null): array
  * สร้างข้อมูลตัวอย่างเริ่มต้น
  */
 function seedDemoDataIfEmpty(PDO $db): void {
+    static $seededChecked = false;
+    if ($seededChecked) return;
+    $seededChecked = true;
+
+    $flagFile = sys_get_temp_dir() . '/.car_seeded_flag';
+    if (file_exists($flagFile)) return;
+
     $stmt = $db->query("SELECT COUNT(*) as count FROM trips");
     $count = (int)$stmt->fetch()['count'];
-    if ($count > 0) return;
+    if ($count > 0) {
+        @file_put_contents($flagFile, '1');
+        return;
+    }
 
     $tripDate = '2026-10-04';
     

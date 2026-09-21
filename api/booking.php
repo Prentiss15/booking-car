@@ -136,7 +136,7 @@ try {
             $tripId, $vehicleId, $seatNumber, $passengerName,
             $prefix, $firstName, $lastNameOrNickname, $age, $phone, $travelType, $note
         ]);
-        $bookingId = $db->lastInsertId();
+        $bookingId = getDbLastInsertId($db, 'bookings');
 
         echo json_encode([
             'success' => true,

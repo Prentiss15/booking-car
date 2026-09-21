@@ -187,7 +187,7 @@ function seedDemoDataIfEmpty(PDO $db): void {
         '***ถ่ายภาพสลิปการลงทะเบียน ทั้งขาไป - และขากลับส่งที่ พม.อานุภาพ เวลา 16.00 น.',
         "1. งดถอดชื่อออกเมื่อถึงวันที่ตัดยอดแล้ว\n2. ตัดยอดวันอังคารก่อนวันงาน เวลา 15:00 น."
     ]);
-    $tripId = $db->lastInsertId();
+    $tripId = getDbLastInsertId($db, 'trips');
 
     $stmtVeh = $db->prepare("
         INSERT INTO vehicles (trip_id, type, vehicle_type_label, vehicle_number, name, total_seats, header_color)
@@ -195,13 +195,13 @@ function seedDemoDataIfEmpty(PDO $db): void {
     ");
     
     $stmtVeh->execute([$tripId, 1, 'คันที่ 1', 'green']);
-    $v1Id = $db->lastInsertId();
+    $v1Id = getDbLastInsertId($db, 'vehicles');
 
     $stmtVeh->execute([$tripId, 2, 'คันที่ 2', 'amber']);
-    $v2Id = $db->lastInsertId();
+    $v2Id = getDbLastInsertId($db, 'vehicles');
 
     $stmtVeh->execute([$tripId, 3, 'คันที่ 3', 'blue']);
-    $v3Id = $db->lastInsertId();
+    $v3Id = getDbLastInsertId($db, 'vehicles');
 
     $stmtBook = $db->prepare("
         INSERT INTO bookings (trip_id, vehicle_id, seat_number, passenger_name, prefix, first_name, last_name_or_nickname, age, phone, travel_type, admin_note)

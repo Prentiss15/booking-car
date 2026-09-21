@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $title, $tripDate, $departureTime, $destination,
                     $pickupTimeInfo, $returnTimeInfo, $noticeRed, $deadlineNotice
                 ]);
-                $newTripId = $db->lastInsertId();
+                $newTripId = getDbLastInsertId($db, 'trips');
 
                 $stmtVeh = $db->prepare("
                     INSERT INTO vehicles (trip_id, type, vehicle_type_label, vehicle_number, name, total_seats, header_color)
@@ -340,7 +340,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $srcTrip['pickup_time_info'], $srcTrip['return_time_info'], $srcTrip['notice_red'],
                         $srcTrip['deadline_notice'], $srcTrip['notes']
                     ]);
-                    $newTripId = $db->lastInsertId();
+                    $newTripId = getDbLastInsertId($db, 'trips');
 
                     $stmtVeh = $db->prepare("SELECT * FROM vehicles WHERE trip_id = ? ORDER BY id ASC");
                     $stmtVeh->execute([$sourceTripId]);

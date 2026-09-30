@@ -417,6 +417,182 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         $msgType = 'success';
                     }
                 }
+
+            } elseif ($action === 'create_trip') {
+                $curRole = $currentAdmin['role'] ?? 'staff';
+                if ($curRole === 'staff') {
+                    $msg = 'ขออภัย ผู้ประสานงานรถไม่มีสิทธิ์สร้างรอบการเดินทาง';
+                    $msgType = 'error';
+                } else {
+                    $title = clean($_POST['title'] ?? '');
+                    $tripDate = clean($_POST['trip_date'] ?? '');
+                    $departureTime = clean($_POST['departure_time'] ?? '08.00 น.');
+                    $destination = clean($_POST['destination'] ?? 'งานบูชาข้าวพระต้นเดือน');
+                    $pickupTimeInfo = clean($_POST['pickup_time_info'] ?? 'ขึ้นรถหน้ากุฏิพระประจำ 08.00 น.');
+                    $returnTimeInfo = clean($_POST['return_time_info'] ?? 'เดินทางกลับ ขึ้นรถที่วิหารคดคอร์ 32 และอาคารปราบบมาร 16.00 น.');
+                    $noticeRed = clean($_POST['notice_red'] ?? '***ถ่ายภาพสลิปการลงทะเบียน ทั้งขาไป - และขากลับส่งที่ พม.อานุภาพ เวลา 16.00 น.');
+                    $deadlineNotice = clean($_POST['deadline_notice'] ?? "1. งดถอดชื่อออกเมื่อถึงวันที่ตัดยอดแล้ว\n2. ตัดยอดวันอังคารก่อนวันงาน เวลา 15:00 น.");
+
+                    $vanCount = max(0, (int)($_POST['van_count'] ?? 0));
+                    $busAc1Count = max(0, (int)($_POST['bus_ac1_count'] ?? 0));
+                    $busAc2Count = max(0, (int)($_POST['bus_ac2_count'] ?? 0));
+                    $busFanCount = max(0, (int)($_POST['bus_fan_count'] ?? 0));
+
+                    $totalVehiclesRequested = $vanCount + $busAc1Count + $busAc2Count + $busFanCount;
+
+                    if (empty($title) || empty($tripDate)) {
+                        $msg = 'กรุณากรอกชื่องานและวันที่เดินทาง';
+                        $msgType = 'error';
+                    } elseif ($totalVehiclesRequested === 0) {
+                        $msg = 'กรุณาเลือกรถอย่างน้อย 1 คัน';
+                        $msgType = 'error';
+                    } else {
+                        $db->beginTransaction();
+                        try {
+                            $stmt = $db->prepare("
+                                INSERT INTO trips (
+                                    title, trip_date, departure_time, destination, 
+                                    pickup_time_info, return_time_info, notice_red, deadline_notice, is_active
+                                )
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
+                            ");
+                            $stmt->execute([
+                                $title, $tripDate, $departureTime, $destination,
+                                $pickupTimeInfo, $returnTimeInfo, $noticeRed, $deadlineNotice
+                            ]);
+                            $newTripId = getDbLastInsertId($db, 'trips');
+
+                            $stmtVeh = $db->prepare("
+                                INSERT INTO vehicles (trip_id, type, vehicle_type_label, vehicle_number, name, total_seats, header_color)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)
+                            ");
+                            
+                            $carNum = 1;
+                            for ($i = 1; $i <= $vanCount; $i++) {
+                                $stmtVeh->execute([$newTripId, 'van', 'รถตู้ (10 ที่นั่ง VIP)', $carNum, "คันที่ {$carNum}", 10, 'green']);
+                                $carNum++;
+                            }
+
+                            for ($j = 1; $j <= $busAc1Count; $j++) {
+                                $stmtVeh->execute([$newTripId, 'bus', 'รถบัสปรับอากาศ 1 ชั้น (40 ที่นั่ง)', $carNum, "คันที่ {$carNum} (บัสแอร์ 1 ชั้น)", 40, 'blue']);
+                                $carNum++;
+                            }
+
+                            for ($k = 1; $k <= $busAc2Count; $k++) {
+                                $stmtVeh->execute([$newTripId, 'bus', 'รถบัสปรับอากาศ 2 ชั้น (50 ที่นั่ง)', $carNum, "คันที่ {$carNum} (บัสแอร์ 2 ชั้น)", 50, 'purple']);
+                                $carNum++;
+                            }
+
+                            for ($l = 1; $l <= $busFanCount; $l++) {
+                                $stmtVeh->execute([$newTripId, 'bus', 'รถบัสพัดลม (40 ที่นั่ง)', $carNum, "คันที่ {$carNum} (บัสพัดลม)", 40, 'amber']);
+                                $carNum++;
+                            }
+
+                            $db->commit();
+                            $msg = 'สร้างรอบการเดินทางเรียบร้อยแล้ว!';
+                            $msgType = 'success';
+                            $_GET['trip_id'] = $newTripId;
+                        } catch (Exception $e) {
+                            $db->rollBack();
+                            $msg = 'เกิดข้อผิดพลาดในการสร้างรอบ: ' . $e->getMessage();
+                            $msgType = 'error';
+                        }
+                    }
+                }
+
+            } elseif ($action === 'duplicate_trip') {
+                $curRole = $currentAdmin['role'] ?? 'staff';
+                if ($curRole === 'staff') {
+                    $msg = 'ขออภัย ผู้ประสานงานรถไม่มีสิทธิ์คัดลอกรอบ';
+                    $msgType = 'error';
+                } else {
+                    $sourceTripId = (int)($_POST['source_trip_id'] ?? 0);
+                    if ($sourceTripId > 0) {
+                        $stmtSrc = $db->prepare("SELECT * FROM trips WHERE id = ?");
+                        $stmtSrc->execute([$sourceTripId]);
+                        $srcTrip = $stmtSrc->fetch();
+
+                        if ($srcTrip) {
+                            $db->beginTransaction();
+                            try {
+                                $curDate = new DateTime($srcTrip['trip_date']);
+                                $curDate->modify('first day of next month');
+                                if ($curDate->format('N') != 7) {
+                                    $curDate->modify('next sunday');
+                                }
+                                $nextTripDate = $curDate->format('Y-m-d');
+
+                                $stmtNew = $db->prepare("
+                                    INSERT INTO trips (
+                                        title, trip_date, departure_time, destination, pickup_location,
+                                        pickup_time_info, return_time_info, notice_red, deadline_notice, notes, is_active
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                                ");
+                                $stmtNew->execute([
+                                    $srcTrip['title'], $nextTripDate, $srcTrip['departure_time'], $srcTrip['destination'],
+                                    $srcTrip['pickup_location'] ?? 'หน้ากุฏิพระประจำ',
+                                    $srcTrip['pickup_time_info'], $srcTrip['return_time_info'], $srcTrip['notice_red'],
+                                    $srcTrip['deadline_notice'], $srcTrip['notes'] ?? ''
+                                ]);
+                                $newTripId = getDbLastInsertId($db, 'trips');
+
+                                $stmtVeh = $db->prepare("SELECT * FROM vehicles WHERE trip_id = ? ORDER BY id ASC");
+                                $stmtVeh->execute([$sourceTripId]);
+                                $vehicles = $stmtVeh->fetchAll();
+
+                                $stmtInsVeh = $db->prepare("
+                                    INSERT INTO vehicles (trip_id, type, vehicle_type_label, vehicle_number, name, license_plate, driver_name, driver_phone, total_seats, header_color)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ");
+                                foreach ($vehicles as $v) {
+                                    $stmtInsVeh->execute([
+                                        $newTripId, $v['type'], $v['vehicle_type_label'], $v['vehicle_number'],
+                                        $v['name'], $v['license_plate'] ?? '', $v['driver_name'] ?? '', $v['driver_phone'] ?? '',
+                                        $v['total_seats'], $v['header_color'] ?? 'green'
+                                    ]);
+                                }
+
+                                $db->commit();
+                                $msg = "คัดลอกโครงสร้างรอบเดิมเป็นรอบใหม่เรียบร้อยแล้ว (" . formatThaiDate($nextTripDate) . " - มีรถ " . count($vehicles) . " คัน ที่นั่งว่าง 0 คน พร้อมเปิดรับ)";
+                                $msgType = 'success';
+                                $_GET['trip_id'] = $newTripId;
+                            } catch (Exception $e) {
+                                $db->rollBack();
+                                $msg = 'เกิดข้อผิดพลาดในการคัดลอกรอบ: ' . $e->getMessage();
+                                $msgType = 'error';
+                            }
+                        }
+                    }
+                }
+
+            } elseif ($action === 'delete_trip') {
+                if (!$isSuper) {
+                    $msg = 'เฉพาะ Super Admin เท่านั้นที่สามารถลบรอบการเดินทางได้';
+                    $msgType = 'error';
+                } else {
+                    $targetTripId = (int)($_POST['trip_id'] ?? 0);
+                    if ($targetTripId > 0) {
+                        $stmtTrip = $db->prepare("SELECT title, trip_date FROM trips WHERE id = ?");
+                        $stmtTrip->execute([$targetTripId]);
+                        $t = $stmtTrip->fetch();
+                        if ($t) {
+                            $db->beginTransaction();
+                            try {
+                                $db->prepare("DELETE FROM bookings WHERE trip_id = ?")->execute([$targetTripId]);
+                                $db->prepare("DELETE FROM vehicles WHERE trip_id = ?")->execute([$targetTripId]);
+                                $db->prepare("DELETE FROM trips WHERE id = ?")->execute([$targetTripId]);
+                                $db->commit();
+                                $msg = "ลบรอบการเดินทาง '{$t['title']} (" . formatThaiDate($t['trip_date']) . ")' เรียบร้อยแล้ว";
+                                $msgType = 'success';
+                                unset($_GET['trip_id']);
+                            } catch (Exception $e) {
+                                $db->rollBack();
+                                $msg = 'เกิดข้อผิดพลาดในการลบรอบ: ' . $e->getMessage();
+                                $msgType = 'error';
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -516,13 +692,13 @@ define('APP_TITLE', 'แผงควบคุมระบบ Admin');
 require_once __DIR__ . '/../includes/header.php';
 ?>
 
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-10">
+<div class="max-w-7xl 2xl:max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
 
     <!-- Top Admin Header -->
     <div class="flex flex-col md:flex-row md:items-center md:justify-between pb-6 border-b border-charcoal-border gap-4 mb-6">
         <div>
             <div class="flex items-center space-x-2 text-xs text-charcoal-muted font-medium mb-1">
-                <span class="px-2 py-0.5 rounded-sm font-semibold text-[11px] <?= $isSuper ? 'bg-purple-100 text-purple-800 border border-purple-200' : ($currentAdminRole === 'admin' ? 'bg-accent-subtle text-accent border border-accent-border' : 'bg-amber-100 text-amber-800 border border-amber-200') ?>">
+                <span class="px-2.5 py-0.5 rounded-full font-semibold text-[11px] <?= $isSuper ? 'bg-purple-100 text-purple-800 border border-purple-200' : ($currentAdminRole === 'admin' ? 'bg-accent-subtle text-accent border border-accent-border' : 'bg-amber-100 text-amber-800 border border-amber-200') ?>">
                     <i class="fa-solid <?= $isSuper ? 'fa-crown mr-1 text-purple-600' : ($currentAdminRole === 'admin' ? 'fa-shield-halved mr-1 text-accent' : 'fa-clipboard-user mr-1 text-amber-600') ?>"></i>
                     <?= $currentAdmin['role_label'] ?? 'Admin Mode' ?>
                 </span>
@@ -530,6 +706,25 @@ require_once __DIR__ . '/../includes/header.php';
                 <span class="text-charcoal-muted">ผู้ดูแล: <strong class="text-charcoal"><?= clean($currentAdmin['name']) ?></strong> (<?= clean($currentAdmin['email'] ?: $currentAdmin['username']) ?>)</span>
             </div>
             <h1 class="text-2xl font-bold text-charcoal tracking-tight">แผงควบคุมระบบบริหารยานพาหนะ</h1>
+            <p class="text-xs text-charcoal-muted mt-0.5">จัดการรอบเดินทาง จัดสรรยานพาหนะ รายชื่อผู้โดยสาร และจัดการสิทธิ์ผู้ดูแลระบบ</p>
+        </div>
+
+        <!-- Top Desktop Quick Action Buttons -->
+        <div class="flex flex-wrap items-center gap-2">
+            <?php if ($isSuper || $currentAdminRole === 'admin'): ?>
+                <button type="button" onclick="openNewTripModal()" class="bg-charcoal hover:bg-charcoal-secondary text-white font-medium px-3.5 py-2 rounded-lg text-xs transition flex items-center space-x-1.5 shadow-subtle active:scale-95 cursor-pointer">
+                    <i class="fa-solid fa-plus text-xs"></i>
+                    <span>+ สร้างรอบใหม่</span>
+                </button>
+                <button type="button" onclick="openAdminMgmtModal()" class="bg-surface hover:bg-surface-muted text-charcoal border border-charcoal-border font-medium px-3.5 py-2 rounded-lg text-xs transition flex items-center space-x-1.5 shadow-subtle active:scale-95 cursor-pointer">
+                    <i class="fa-solid fa-users-gear text-accent text-xs"></i>
+                    <span>จัดการสิทธิ์แอดมิน (Gmail)</span>
+                </button>
+            <?php endif; ?>
+            <a href="/index.php" class="bg-surface hover:bg-surface-muted text-charcoal border border-charcoal-border font-medium px-3.5 py-2 rounded-lg text-xs transition flex items-center space-x-1.5 shadow-subtle">
+                <i class="fa-solid fa-arrow-up-right-from-square text-charcoal-muted text-[11px]"></i>
+                <span>ดูหน้าบ้าน</span>
+            </a>
         </div>
     </div>
 
@@ -554,7 +749,7 @@ require_once __DIR__ . '/../includes/header.php';
     $remainingSeatsInSelected = max(0, $totalCapacityInSelected - $totalBookedInSelected);
     $fillPercent = $totalCapacityInSelected > 0 ? min(100, round(($totalBookedInSelected / $totalCapacityInSelected) * 100)) : 0;
     ?>
-    <div class="grid-stats-cards mb-6">
+    <div class="grid-stats-cards grid grid-cols-2 lg:grid-cols-4 gap-3.5 mb-6">
         <div class="stat-card">
             <div class="stat-card-header">
                 <span class="stat-card-title">รอบการเดินทางปัจจุบัน</span>
@@ -610,12 +805,19 @@ require_once __DIR__ . '/../includes/header.php';
 
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
-        <!-- Left: Trip List (4 cols) -->
-        <div class="lg:col-span-4 space-y-4">
-            <div class="bg-surface rounded-lg border border-charcoal-border p-4 shadow-card">
+        <!-- Left: Trip List (Sidebar) -->
+        <div class="lg:col-span-4 xl:col-span-3 space-y-4">
+            <div class="bg-surface rounded-xl border border-charcoal-border p-4 shadow-card">
                 <div class="flex items-center justify-between mb-3 pb-2 border-b border-charcoal-border/60">
                     <span class="text-xs font-semibold text-charcoal uppercase tracking-wider">รอบการเดินทาง</span>
-                    <span class="text-[11px] text-charcoal-subtle font-medium"><?= count($trips) ?> รอบในระบบ</span>
+                    <?php if ($isSuper || $currentAdminRole === 'admin'): ?>
+                        <button type="button" onclick="openNewTripModal()" class="text-xs font-semibold text-accent hover:text-accent-hover flex items-center space-x-1 cursor-pointer">
+                            <i class="fa-solid fa-plus text-[10px]"></i>
+                            <span>สร้างรอบ</span>
+                        </button>
+                    <?php else: ?>
+                        <span class="text-[11px] text-charcoal-subtle font-medium"><?= count($trips) ?> รอบในระบบ</span>
+                    <?php endif; ?>
                 </div>
 
                 <div class="space-y-2.5">
@@ -643,54 +845,77 @@ require_once __DIR__ . '/../includes/header.php';
             </div>
         </div>
 
-        <!-- Right: Manage Selected Trip & Vehicles (8 cols) -->
-        <div class="lg:col-span-8 space-y-6">
+        <!-- Right: Manage Selected Trip & Vehicles -->
+        <div class="lg:col-span-8 xl:col-span-9 space-y-6">
             <?php if ($currentTrip): 
                 $isOpen = (int)$currentTrip['is_active'] === 1;
             ?>
                 
-                <!-- 1. Trip Header Bar with PROMINENT Open/Close Toggle Button -->
-                <div class="bg-surface rounded-lg border border-charcoal-border p-5 shadow-card">
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-charcoal-border/60">
-                        <div>
+                <!-- 1. Trip Header Bar with Desktop Actions -->
+                <div class="bg-surface rounded-xl border border-charcoal-border p-5 shadow-card">
+                    <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4 pb-4 border-b border-charcoal-border/60">
+                        <div class="min-w-0">
                             <span class="text-[11px] uppercase tracking-wider text-charcoal-subtle font-semibold">รอบการเดินทางที่เลือก</span>
-                            <h2 class="text-lg font-bold text-charcoal tracking-tight"><?= clean($currentTrip['title']) ?></h2>
-                            <div class="text-xs text-charcoal-muted mt-0.5 flex items-center space-x-2">
-                                <span><i class="fa-regular fa-calendar mr-1 text-charcoal-subtle"></i><?= formatThaiDate($currentTrip['trip_date']) ?></span>
+                            <h2 class="text-xl font-bold text-charcoal tracking-tight truncate"><?= clean($currentTrip['title']) ?></h2>
+                            <div class="text-xs text-charcoal-muted mt-1 flex flex-wrap items-center gap-2">
+                                <span class="flex items-center"><i class="fa-regular fa-calendar mr-1.5 text-charcoal-subtle"></i><?= formatThaiDate($currentTrip['trip_date']) ?></span>
                                 <span class="text-charcoal-border">•</span>
-                                <span><i class="fa-regular fa-clock mr-1 text-charcoal-subtle"></i>เวลา <?= clean($currentTrip['departure_time']) ?></span>
+                                <span class="flex items-center"><i class="fa-regular fa-clock mr-1.5 text-charcoal-subtle"></i>เวลา <?= clean($currentTrip['departure_time']) ?></span>
                             </div>
                         </div>
 
-                        <!-- ปุ่มสถานะ ปิดรับ / เปิดรับ (Corporate Trust Tone) -->
+                        <!-- Action Buttons on Desktop -->
                         <div class="flex flex-wrap items-center gap-2">
-                            <form method="POST" class="inline">
+                            <!-- ปุ่มสถานะ เปิดรับ / ปิดรับ -->
+                            <form method="POST" class="inline m-0">
                                 <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
                                 <input type="hidden" name="action" value="toggle_trip_status">
                                 <input type="hidden" name="trip_id" value="<?= $currentTrip['id'] ?>">
                                 <input type="hidden" name="new_status" value="<?= $isOpen ? '0' : '1' ?>">
                                 
                                 <button type="submit" 
-                                        class="px-4 py-2 rounded-md text-xs font-bold transition shadow-subtle flex items-center space-x-2 border <?= $isOpen ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700' : 'bg-rose-700 hover:bg-rose-800 text-white border-rose-800' ?>">
+                                        class="px-3.5 py-2 rounded-lg text-xs font-bold transition shadow-subtle flex items-center space-x-2 border <?= $isOpen ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-700' : 'bg-rose-700 hover:bg-rose-800 text-white border-rose-800' ?> cursor-pointer">
                                     <i class="fa-solid <?= $isOpen ? 'fa-toggle-on text-base' : 'fa-toggle-off text-base text-rose-200' ?>"></i>
                                     <span>สถานะ: <?= $isOpen ? 'เปิดรับลงชื่อ' : 'ปิดรับการลงชื่อ' ?></span>
                                 </button>
                             </form>
 
-                            <?php if ($isSuper): ?>
-                                <form method="POST" onsubmit="return confirm('ยืนยันล้างรายชื่อผู้ลงทะเบียนในรอบนี้ทั้งหมดหรือไม่?\n(คันรถจะยังคงอยู่ครบ 100% ที่นั่งจะว่าง 0 คน)')" class="inline">
+                            <?php if ($isSuper || $currentAdminRole === 'admin'): ?>
+                                <form method="POST" onsubmit="return confirm('ยืนยันคัดลอกโครงสร้างรอบนี้ (คันรถทั้งหมด) ไปสร้างเป็นรอบใหม่สำหรับเดือนถัดไป หรือไม่?\n(รอบใหม่จะมีรถครบทุกคันและที่นั่งว่าง 0 คน พร้อมเปิดรับลงชื่อทันที)')" class="inline m-0">
                                     <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
-                                    <input type="hidden" name="action" value="clear_all_bookings">
-                                    <input type="hidden" name="trip_id" value="<?= $currentTrip['id'] ?>">
-                                    <button type="submit" class="px-3 py-2 rounded-md text-xs font-medium bg-surface hover:bg-rose-50 text-rose-700 border border-charcoal-border hover:border-rose-300 transition flex items-center space-x-1.5 shadow-subtle" title="ล้างรายชื่อทั้งหมดในรอบนี้">
-                                        <i class="fa-solid fa-trash-can text-rose-600"></i>
-                                        <span>ล้างรายชื่อ</span>
+                                    <input type="hidden" name="action" value="duplicate_trip">
+                                    <input type="hidden" name="source_trip_id" value="<?= $currentTrip['id'] ?>">
+                                    <button type="submit" class="px-3 py-2 rounded-lg text-xs font-medium bg-surface hover:bg-surface-muted text-charcoal border border-charcoal-border transition flex items-center space-x-1.5 shadow-subtle cursor-pointer" title="คัดลอกคันรถทั้งหมดไปสร้างรอบใหม่สำหรับเดือนถัดไป">
+                                        <i class="fa-solid fa-copy text-accent text-xs"></i>
+                                        <span>คัดลอกรอบ</span>
                                     </button>
                                 </form>
                             <?php endif; ?>
 
-                            <a href="/admin/export.php?trip_id=<?= $currentTrip['id'] ?>" target="_blank" class="px-3 py-2 rounded-md text-xs font-medium bg-surface hover:bg-surface-muted text-charcoal border border-charcoal-border transition flex items-center space-x-1 shadow-subtle" title="พิมพ์ใบรายชื่อ">
-                                <i class="fa-solid fa-print text-charcoal-muted"></i>
+                            <?php if ($isSuper): ?>
+                                <form method="POST" onsubmit="return confirm('ยืนยันล้างรายชื่อผู้ลงทะเบียนในรอบนี้ทั้งหมดหรือไม่?\n(คันรถจะยังคงอยู่ครบ 100% ที่นั่งจะว่าง 0 คน)')" class="inline m-0">
+                                    <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
+                                    <input type="hidden" name="action" value="clear_all_bookings">
+                                    <input type="hidden" name="trip_id" value="<?= $currentTrip['id'] ?>">
+                                    <button type="submit" class="px-3 py-2 rounded-lg text-xs font-medium bg-surface hover:bg-rose-50 text-rose-700 border border-charcoal-border hover:border-rose-300 transition flex items-center space-x-1.5 shadow-subtle cursor-pointer" title="ล้างรายชื่อทั้งหมดในรอบนี้">
+                                        <i class="fa-solid fa-trash-can text-rose-600 text-xs"></i>
+                                        <span>ล้างรายชื่อ</span>
+                                    </button>
+                                </form>
+
+                                <form method="POST" onsubmit="return confirm('⚠️ คำเตือนสำคัญ!\nคุณแน่ใจหรือไม่ว่าต้องการลบรอบการเดินทางนี้ทิ้งอย่างถาวร?\n(ข้อมูลคันรถและรายชื่อผู้ลงชื่อในรอบนี้ทั้งหมดจะถูกลบ และไม่สามารถกู้คืนได้)')" class="inline m-0">
+                                    <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
+                                    <input type="hidden" name="action" value="delete_trip">
+                                    <input type="hidden" name="trip_id" value="<?= $currentTrip['id'] ?>">
+                                    <button type="submit" class="px-3 py-2 rounded-lg text-xs font-medium bg-rose-600 hover:bg-rose-700 text-white transition flex items-center space-x-1.5 shadow-subtle cursor-pointer" title="ลบรอบนี้ทิ้งอย่างถาวร">
+                                        <i class="fa-solid fa-trash text-xs"></i>
+                                        <span>ลบรอบนี้</span>
+                                    </button>
+                                </form>
+                            <?php endif; ?>
+
+                            <a href="/admin/export.php?trip_id=<?= $currentTrip['id'] ?>" target="_blank" class="px-3 py-2 rounded-lg text-xs font-medium bg-surface hover:bg-surface-muted text-charcoal border border-charcoal-border transition flex items-center space-x-1.5 shadow-subtle" title="พิมพ์ใบรายชื่อ">
+                                <i class="fa-solid fa-print text-charcoal-muted text-xs"></i>
                                 <span>พิมพ์</span>
                             </a>
                         </div>
@@ -922,7 +1147,7 @@ require_once __DIR__ . '/../includes/header.php';
 
                         <div class="bg-surface rounded-lg border border-charcoal-border shadow-card overflow-hidden">
                             <div class="overflow-x-auto">
-                                <table class="w-full text-left text-xs">
+                                <table class="w-full text-left text-xs min-w-[1000px]">
                                     <thead class="bg-surface-muted text-charcoal-muted font-semibold border-b border-charcoal-border text-[11px] uppercase tracking-wider">
                                         <tr>
                                             <th class="py-2.5 px-3 w-10 text-center">
@@ -1037,21 +1262,22 @@ require_once __DIR__ . '/../includes/header.php';
                                                             <span class="text-charcoal-subtle">-</span>
                                                         <?php endif; ?>
                                                     </td>
-                                                    <td class="py-2.5 px-3 text-center">
+                                                    <td class="py-2.5 px-3 text-center whitespace-nowrap">
                                                         <div class="flex items-center justify-center space-x-1.5">
                                                             <button type="button" 
                                                                     data-passenger="<?= htmlspecialchars(json_encode($p, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE), ENT_QUOTES, 'UTF-8') ?>"
                                                                     onclick="openMoveModalFromBtn(this)"
-                                                                    class="text-charcoal hover:text-charcoal-dark font-medium px-2.5 py-1 rounded-md border border-charcoal-border hover:bg-surface-muted text-[11px] transition shadow-subtle"
+                                                                    class="text-charcoal hover:text-accent font-medium px-2.5 py-1 rounded-md border border-charcoal-border hover:bg-surface-muted text-[11px] transition shadow-subtle inline-flex items-center space-x-1 cursor-pointer"
                                                                     title="ย้ายคัน / แก้ไขข้อมูล">
-                                                                ย้าย/แก้ไข
+                                                                <i class="fa-solid fa-pen-to-square text-[10px]"></i>
+                                                                <span>ย้าย/แก้ไข</span>
                                                             </button>
-                                                            <form method="POST" onsubmit="return confirm('ยืนยันลบชื่อนี้หรือไม่?')" class="inline">
+                                                            <form method="POST" onsubmit="return confirm('ยืนยันลบชื่อนี้หรือไม่?')" class="inline m-0">
                                                                 <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
                                                                 <input type="hidden" name="action" value="delete_booking">
                                                                 <input type="hidden" name="booking_id" value="<?= $p['id'] ?>">
-                                                                <button type="submit" class="text-charcoal-subtle hover:text-mutedred-700 p-1 transition" title="ลบชื่อ">
-                                                                    <i class="fa-solid fa-trash-can"></i>
+                                                                <button type="submit" class="text-charcoal-subtle hover:text-mutedred-700 p-1.5 transition rounded hover:bg-mutedred-50 cursor-pointer" title="ลบชื่อ">
+                                                                    <i class="fa-solid fa-trash-can text-xs"></i>
                                                                 </button>
                                                             </form>
                                                         </div>
@@ -1082,7 +1308,7 @@ require_once __DIR__ . '/../includes/header.php';
 
 <?php if ($isSuper || $currentAdminRole === 'admin'): ?>
 <!-- Modal: จัดการสิทธิ์ผู้ดูแลระบบ Gmail (Google OAuth Multi-Tier RBAC) -->
-<div id="adminMgmtModal" class="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-charcoal-dark/60 backdrop-blur-xs hidden p-2 sm:p-4" onclick="closeAdminMgmtModal(event)">
+<div id="adminMgmtModal" class="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm hidden p-2 sm:p-4" onclick="closeAdminMgmtModal(event)">
     <div class="bg-surface rounded-xl w-full max-w-3xl shadow-elevated border border-charcoal-border text-xs text-charcoal flex flex-col max-h-[92vh]" onclick="event.stopPropagation()">
         <!-- Header -->
         <div class="flex-shrink-0 bg-surface flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-charcoal-border rounded-t-xl">
@@ -1217,7 +1443,7 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
 
                 <div class="overflow-x-auto bg-surface rounded-lg border border-charcoal-border">
-                    <table class="w-full text-left text-xs">
+                    <table class="w-full text-left text-xs min-w-[1000px]">
                         <thead class="bg-surface-muted text-charcoal-muted font-semibold border-b border-charcoal-border">
                             <tr>
                                 <th class="py-2.5 px-3">ชื่อ-สกุล</th>
@@ -1330,16 +1556,17 @@ require_once __DIR__ . '/../includes/header.php';
 
         <!-- Clean Modal Footer docked at the bottom -->
         <div class="flex-shrink-0 bg-surface-muted/60 border-t border-charcoal-border px-4 sm:px-6 py-3 flex items-center justify-end">
-            <button type="button" onclick="closeAdminMgmtModal()" class="px-5 py-2 rounded-lg bg-surface hover:bg-surface-muted border border-charcoal-border text-charcoal font-semibold text-xs sm:text-sm transition flex items-center space-x-1.5 active:scale-95 shadow-xs">
+            <button type="button" onclick="closeAdminMgmtModal()" class="px-5 py-2 rounded-lg bg-surface hover:bg-surface-muted border border-charcoal-border text-charcoal font-semibold text-xs sm:text-sm transition flex items-center space-x-1.5 active:scale-95 shadow-xs cursor-pointer">
                 <i class="fa-solid fa-xmark"></i>
                 <span>ปิดหน้าต่าง</span>
+            </button>
         </div>
     </div>
 </div>
 <?php endif; ?>
 
 <!-- Modal: เพิ่มรถชนิดอื่น -->
-<div id="addVehicleModal" class="fixed inset-0 z-50 flex items-center justify-center bg-charcoal-dark/60 backdrop-blur-xs hidden p-4">
+<div id="addVehicleModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm hidden p-4">
     <div class="bg-surface rounded-lg p-6 max-w-md w-full shadow-elevated border border-charcoal-border text-xs text-charcoal">
         <div class="flex items-center justify-between pb-3 border-b border-charcoal-border">
             <h3 class="font-bold text-charcoal text-sm">เพิ่มยานพาหนะในรอบเดินทาง</h3>
@@ -1396,7 +1623,7 @@ require_once __DIR__ . '/../includes/header.php';
 </div>
 
 <!-- Modal: ย้ายคนข้ามคัน -->
-<div id="moveModal" class="fixed inset-0 z-50 flex items-center justify-center bg-charcoal-dark/60 backdrop-blur-xs hidden p-4">
+<div id="moveModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm hidden p-4">
     <div class="bg-surface rounded-lg p-6 max-w-md w-full shadow-elevated border border-charcoal-border text-xs text-charcoal">
         <div class="flex items-center justify-between pb-3 border-b border-charcoal-border">
             <div>
@@ -1480,7 +1707,75 @@ require_once __DIR__ . '/../includes/header.php';
     </div>
 </div>
 
+
+<!-- Modal: สร้างรอบการเดินทางใหม่ -->
+<div id="newTripModal" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm hidden p-4 overflow-y-auto">
+    <div class="bg-surface rounded-xl max-w-lg w-full p-6 shadow-elevated border border-charcoal-border my-8 text-xs text-charcoal" onclick="event.stopPropagation()">
+        <div class="flex items-center justify-between pb-3 border-b border-charcoal-border">
+            <h3 class="font-bold text-charcoal text-sm flex items-center space-x-2">
+                <i class="fa-solid fa-calendar-plus text-accent"></i>
+                <span>สร้างรอบการเดินทางใหม่</span>
+            </h3>
+            <button type="button" onclick="closeNewTripModal()" class="text-charcoal-subtle hover:text-charcoal transition w-7 h-7 rounded-full flex items-center justify-center hover:bg-surface-muted cursor-pointer"><i class="fa-solid fa-xmark text-sm"></i></button>
+        </div>
+
+        <form method="POST" class="mt-4 space-y-3.5">
+            <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
+            <input type="hidden" name="action" value="create_trip">
+
+            <div>
+                <label class="block font-semibold text-charcoal mb-1">ชื่องาน / กิจกรรม <span class="text-mutedred-600">*</span></label>
+                <input type="text" name="title" required value="งานบูชาข้าวพระต้นเดือน" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-lg text-xs font-semibold text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                    <label class="block font-semibold text-charcoal mb-1">วันเดินทาง (วันอาทิตย์ต้นเดือน) <span class="text-mutedred-600">*</span></label>
+                    <input type="date" name="trip_date" required value="<?= $suggestedDate ?>" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-lg text-xs font-bold text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
+                </div>
+                <div>
+                    <label class="block font-semibold text-charcoal mb-1">เวลาล้อหมุน <span class="text-mutedred-600">*</span></label>
+                    <input type="text" name="departure_time" required value="08.00 น." class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-lg text-xs text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
+                </div>
+            </div>
+
+            <div class="bg-surface-muted p-3.5 rounded-xl border border-charcoal-border space-y-2.5">
+                <div class="font-bold text-charcoal text-[11px] flex items-center justify-between">
+                    <span>กำหนดยานพาหนะเริ่มต้น (เลือกจำนวนคัน):</span>
+                    <span class="text-[10px] text-charcoal-muted">สามารถเพิ่ม/ลบทีหลังได้</span>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="bg-surface p-2.5 border border-charcoal-border rounded-lg flex items-center justify-between shadow-xs">
+                        <span class="font-medium">รถตู้ (10 ที่นั่ง)</span>
+                        <input type="number" name="van_count" value="2" min="0" max="30" class="w-14 px-2 py-1 border border-charcoal-border rounded text-center font-bold text-charcoal focus:border-accent outline-none">
+                    </div>
+                    <div class="bg-surface p-2.5 border border-charcoal-border rounded-lg flex items-center justify-between shadow-xs">
+                        <span class="font-medium">บัสแอร์ 1 ชั้น (40 ที่)</span>
+                        <input type="number" name="bus_ac1_count" value="0" min="0" max="20" class="w-14 px-2 py-1 border border-charcoal-border rounded text-center font-bold text-charcoal focus:border-accent outline-none">
+                    </div>
+                    <div class="bg-surface p-2.5 border border-charcoal-border rounded-lg flex items-center justify-between shadow-xs">
+                        <span class="font-medium">บัสแอร์ 2 ชั้น (50 ที่)</span>
+                        <input type="number" name="bus_ac2_count" value="0" min="0" max="20" class="w-14 px-2 py-1 border border-charcoal-border rounded text-center font-bold text-charcoal focus:border-accent outline-none">
+                    </div>
+                    <div class="bg-surface p-2.5 border border-charcoal-border rounded-lg flex items-center justify-between shadow-xs">
+                        <span class="font-medium">บัสพัดลม (40 ที่)</span>
+                        <input type="number" name="bus_fan_count" value="0" min="0" max="20" class="w-14 px-2 py-1 border border-charcoal-border rounded text-center font-bold text-charcoal focus:border-accent outline-none">
+                    </div>
+                </div>
+            </div>
+
+            <div class="pt-3 flex justify-end gap-2 border-t border-charcoal-border">
+                <button type="button" onclick="closeNewTripModal()" class="px-4 py-2 text-xs font-medium text-charcoal bg-surface hover:bg-surface-muted border border-charcoal-border rounded-lg transition shadow-subtle cursor-pointer">ยกเลิก</button>
+                <button type="submit" class="px-5 py-2 text-xs font-semibold text-white bg-accent hover:bg-accent-hover rounded-lg transition shadow-subtle active:scale-95 cursor-pointer">สร้างรอบการเดินทาง</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
+    function openNewTripModal() { document.getElementById('newTripModal').classList.remove('hidden'); }
+    function closeNewTripModal() { document.getElementById('newTripModal').classList.add('hidden'); }
+
     function openAddVehicleModal() { document.getElementById('addVehicleModal').classList.remove('hidden'); }
     function closeAddVehicleModal() { document.getElementById('addVehicleModal').classList.add('hidden'); }
 

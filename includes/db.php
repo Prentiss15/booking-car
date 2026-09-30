@@ -1,5 +1,6 @@
 <?php
 // includes/db.php - Database connection and schema initializer
+date_default_timezone_set('Asia/Bangkok');
 
 class AppPDO extends PDO {
     public function lastInsertId(?string $name = null): string|false {
@@ -95,13 +96,15 @@ function getDb(): PDO {
             
             $db->exec('PRAGMA foreign_keys = ON;');
             $db->exec('PRAGMA journal_mode = WAL;');
+            $db->exec('PRAGMA busy_timeout = 5000;');
         }
         
-        // Optimize: Only initialize once per container lifecycle
-        $flagFile = sys_get_temp_dir() . '/.car_db_ready_' . substr(md5($databaseUrl ?: 'sqlite'), 0, 8);
-        if (!file_exists($flagFile)) {
+        // Always verify critical migrations run once per process or when schema upgraded
+        static $migrated = false;
+        if (!$migrated) {
             initDatabase($db);
-            @file_put_contents($flagFile, '1');
+            runMigrations($db);
+            $migrated = true;
         }
     }
     return $db;
@@ -126,7 +129,6 @@ function initDatabase(PDO $db): void {
                 id SERIAL PRIMARY KEY,
                 username VARCHAR(100) UNIQUE NOT NULL,
                 password VARCHAR(255) NOT NULL,
-                plain_password VARCHAR(255) DEFAULT '',
                 name VARCHAR(255) NOT NULL,
                 role VARCHAR(50) NOT NULL DEFAULT 'admin',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -198,16 +200,11 @@ function initDatabase(PDO $db): void {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
-                plain_password TEXT DEFAULT '',
                 name TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'admin',
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
         ");
-
-        try {
-            $db->exec("ALTER TABLE admins ADD COLUMN plain_password TEXT DEFAULT '';");
-        } catch (Exception $e) {}
 
         $db->exec("
             CREATE TABLE IF NOT EXISTS trips (
@@ -277,7 +274,7 @@ function initDatabase(PDO $db): void {
                 department TEXT,
                 note TEXT,
                 admin_note TEXT DEFAULT '',
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT (datetime('now', 'localtime')),
                 FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
                 FOREIGN KEY (vehicle_id) REFERENCES vehicles(id) ON DELETE CASCADE,
                 UNIQUE(vehicle_id, seat_number)
@@ -285,36 +282,155 @@ function initDatabase(PDO $db): void {
         ");
     }
 
-    // Common Indexes
-    try {
-        $db->exec("CREATE INDEX IF NOT EXISTS idx_bookings_trip ON bookings(trip_id);");
-        $db->exec("CREATE INDEX IF NOT EXISTS idx_bookings_vehicle ON bookings(vehicle_id);");
-        $db->exec("CREATE INDEX IF NOT EXISTS idx_bookings_passenger ON bookings(passenger_name);");
-        $db->exec("CREATE INDEX IF NOT EXISTS idx_bookings_phone ON bookings(phone);");
-    } catch (Exception $e) {}
+    // Run comprehensive migrations
+    runMigrations($db);
+}
 
-    // Seed superadmin and default admin if not exist
-    $stmtSuper = $db->prepare("SELECT id FROM admins WHERE username = 'superadmin'");
-    $stmtSuper->execute();
-    if (!$stmtSuper->fetch()) {
-        $superHash = password_hash('superadmin123', PASSWORD_DEFAULT);
-        $stmtInsSuper = $db->prepare("
-            INSERT INTO admins (username, password, plain_password, name, role) 
-            VALUES (?, ?, ?, ?, 'superadmin')
-        ");
-        $stmtInsSuper->execute(['superadmin', $superHash, 'superadmin123', 'ผู้ดูแลระบบสูงสุด (Super Admin)']);
+function runMigrations(PDO $db): void {
+    $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+    $isPgsql = ($driver === 'pgsql');
+
+    // 1. Upgrade admins table with Gmail & Multi-Tier RBAC fields
+    if (!$isPgsql) {
+        $cols = [];
+        try {
+            $colsInfo = $db->query("PRAGMA table_info(admins)")->fetchAll();
+            foreach ($colsInfo as $c) {
+                $cols[] = strtolower($c['name']);
+            }
+        } catch (Throwable $e) {}
+
+        if (!in_array('email', $cols)) {
+            try { $db->exec("ALTER TABLE admins ADD COLUMN email TEXT DEFAULT '';"); } catch (Throwable $e) {}
+        }
+        if (!in_array('google_id', $cols)) {
+            try { $db->exec("ALTER TABLE admins ADD COLUMN google_id TEXT DEFAULT '';"); } catch (Throwable $e) {}
+        }
+        if (!in_array('avatar', $cols)) {
+            try { $db->exec("ALTER TABLE admins ADD COLUMN avatar TEXT DEFAULT '';"); } catch (Throwable $e) {}
+        }
+        if (!in_array('is_active', $cols)) {
+            try { $db->exec("ALTER TABLE admins ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1;"); } catch (Throwable $e) {}
+        }
+        if (!in_array('last_login', $cols)) {
+            try { $db->exec("ALTER TABLE admins ADD COLUMN last_login DATETIME;"); } catch (Throwable $e) {}
+        }
+    } else {
+        $adminCols = [
+            'email' => "VARCHAR(255) DEFAULT ''",
+            'google_id' => "VARCHAR(255) DEFAULT ''",
+            'avatar' => "VARCHAR(500) DEFAULT ''",
+            'is_active' => "INTEGER NOT NULL DEFAULT 1",
+            'last_login' => "TIMESTAMP"
+        ];
+        foreach ($adminCols as $col => $def) {
+            try {
+                $db->exec("ALTER TABLE admins ADD COLUMN IF NOT EXISTS {$col} {$def};");
+            } catch (Throwable $e) {}
+        }
+    }
+    try {
+        $db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_admins_email ON admins(email);");
+    } catch (Throwable $e) {}
+
+    // 2. Setup SQLite FTS5 Full-Text Search Virtual Table with Trigram Tokenizer
+    if (!$isPgsql) {
+        try {
+            $db->exec("
+                CREATE VIRTUAL TABLE IF NOT EXISTS bookings_fts USING fts5(
+                    booking_id UNINDEXED,
+                    trip_id UNINDEXED,
+                    passenger_name,
+                    first_name,
+                    last_name_or_nickname,
+                    phone,
+                    travel_type,
+                    admin_note,
+                    tokenize='trigram'
+                );
+            ");
+
+            // Auto-sync triggers for FTS5
+            $db->exec("
+                CREATE TRIGGER IF NOT EXISTS trg_bookings_fts_ai AFTER INSERT ON bookings BEGIN
+                    INSERT INTO bookings_fts (booking_id, trip_id, passenger_name, first_name, last_name_or_nickname, phone, travel_type, admin_note)
+                    VALUES (new.id, new.trip_id, new.passenger_name, new.first_name, new.last_name_or_nickname, new.phone, new.travel_type, new.admin_note);
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS trg_bookings_fts_ad AFTER DELETE ON bookings BEGIN
+                    DELETE FROM bookings_fts WHERE booking_id = old.id;
+                END;
+
+                CREATE TRIGGER IF NOT EXISTS trg_bookings_fts_au AFTER UPDATE ON bookings BEGIN
+                    DELETE FROM bookings_fts WHERE booking_id = old.id;
+                    INSERT INTO bookings_fts (booking_id, trip_id, passenger_name, first_name, last_name_or_nickname, phone, travel_type, admin_note)
+                    VALUES (new.id, new.trip_id, new.passenger_name, new.first_name, new.last_name_or_nickname, new.phone, new.travel_type, new.admin_note);
+                END;
+            ");
+
+            // Backfill existing bookings into FTS index
+            $db->exec("
+                INSERT INTO bookings_fts (booking_id, trip_id, passenger_name, first_name, last_name_or_nickname, phone, travel_type, admin_note)
+                SELECT b.id, b.trip_id, b.passenger_name, b.first_name, b.last_name_or_nickname, b.phone, b.travel_type, b.admin_note
+                FROM bookings b
+                WHERE b.id NOT IN (SELECT booking_id FROM bookings_fts);
+            ");
+        } catch (Throwable $e) {}
     }
 
-    $stmtAdmin = $db->prepare("SELECT id FROM admins WHERE username = 'admin'");
-    $stmtAdmin->execute();
-    if (!$stmtAdmin->fetch()) {
-        $adminHash = password_hash('admin123', PASSWORD_DEFAULT);
-        $stmtInsAdmin = $db->prepare("
-            INSERT INTO admins (username, password, plain_password, name, role) 
-            VALUES (?, ?, ?, ?, 'admin')
-        ");
-        $stmtInsAdmin->execute(['admin', $adminHash, 'admin123', 'ผู้ดูแลทั่วไป (Admin)']);
-    } else {
-        $db->exec("UPDATE admins SET plain_password = 'admin123' WHERE username = 'admin' AND (plain_password IS NULL OR plain_password = '');");
+    // 3. High-Performance Composite & Foreign Key Indexes
+    try {
+        $db->exec("CREATE INDEX IF NOT EXISTS idx_vehicles_trip ON vehicles(trip_id);");
+        $db->exec("CREATE INDEX IF NOT EXISTS idx_bookings_trip ON bookings(trip_id);");
+        $db->exec("CREATE INDEX IF NOT EXISTS idx_bookings_vehicle ON bookings(vehicle_id);");
+        $db->exec("CREATE INDEX IF NOT EXISTS idx_bookings_veh_seat ON bookings(vehicle_id, seat_number);");
+        $db->exec("CREATE INDEX IF NOT EXISTS idx_bookings_trip_phone ON bookings(trip_id, phone);");
+        $db->exec("CREATE INDEX IF NOT EXISTS idx_bookings_passenger ON bookings(passenger_name);");
+        $db->exec("CREATE INDEX IF NOT EXISTS idx_admins_email ON admins(email);");
+    } catch (Throwable $e) {}
+
+    // 4. Seed / Update standard Multi-Tier Gmail Admin Accounts
+    $standardAdmins = [
+        [
+            'email' => 'superadmin@gmail.com',
+            'username' => 'superadmin',
+            'name' => 'ผู้ดูแลระบบสูงสุด (Super Admin)',
+            'role' => 'superadmin',
+            'avatar' => 'https://ui-avatars.com/api/?name=Super+Admin&background=3d516b&color=fff&size=128'
+        ],
+        [
+            'email' => 'admin.dci@gmail.com',
+            'username' => 'admin',
+            'name' => 'ผู้ดูแลทั่วไป (Admin DCI)',
+            'role' => 'admin',
+            'avatar' => 'https://ui-avatars.com/api/?name=Admin+DCI&background=4a6b5b&color=fff&size=128'
+        ],
+        [
+            'email' => 'staff.dci@gmail.com',
+            'username' => 'staff',
+            'name' => 'ผู้ประสานงานรถ (Staff Coordinator)',
+            'role' => 'staff',
+            'avatar' => 'https://ui-avatars.com/api/?name=Staff+DCI&background=c27803&color=fff&size=128'
+        ]
+    ];
+
+    foreach ($standardAdmins as $adm) {
+        try {
+            $stmtCheck = $db->prepare("SELECT id, email FROM admins WHERE email = ? OR username = ?");
+            $stmtCheck->execute([$adm['email'], $adm['username']]);
+            $existing = $stmtCheck->fetch();
+
+            if ($existing) {
+                $stmtUp = $db->prepare("UPDATE admins SET email = ?, role = ?, name = ?, avatar = COALESCE(NULLIF(avatar, ''), ?) WHERE id = ?");
+                $stmtUp->execute([$adm['email'], $adm['role'], $adm['name'], $adm['avatar'], $existing['id']]);
+            } else {
+                $randHash = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+                $stmtIns = $db->prepare("
+                    INSERT INTO admins (username, email, password, name, role, avatar, is_active)
+                    VALUES (?, ?, ?, ?, ?, ?, 1)
+                ");
+                $stmtIns->execute([$adm['username'], $adm['email'], $randHash, $adm['name'], $adm['role'], $adm['avatar']]);
+            }
+        } catch (Throwable $e) {}
     }
 }

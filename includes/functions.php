@@ -16,34 +16,122 @@ function isAdminLoggedIn(): bool {
 }
 
 /**
- * ตรวจสอบว่าเป็น Superadmin หรือไม่
+ * ลำดับชั้นสิทธิ์ของ Admin ตามหลักสากล (RBAC Hierarchy)
+ * superadmin (3) > admin (2) > staff (1)
  */
-function isSuperAdmin(): bool {
-    return isAdminLoggedIn() && !empty($_SESSION['admin_role']) && $_SESSION['admin_role'] === 'superadmin';
+function getRoleTier(string $role): int {
+    return match (strtolower(trim($role))) {
+        'superadmin' => 3,
+        'admin' => 2,
+        'staff' => 1,
+        default => 0
+    };
 }
 
 /**
- * บังคับให้ต้องเข้าสู่ระบบ Admin ก่อน
+ * ตรวจสอบระดับสิทธิ์ขั้นต่ำ
  */
-function requireAdminLogin(): void {
+function hasAdminRole(string $minRole): bool {
+    if (!isAdminLoggedIn()) return false;
+    $currentRole = $_SESSION['admin_role'] ?? 'staff';
+    return getRoleTier($currentRole) >= getRoleTier($minRole);
+}
+
+/**
+ * ตรวจสอบว่าเป็น Superadmin หรือไม่
+ */
+function isSuperAdmin(): bool {
+    return hasAdminRole('superadmin');
+}
+
+/**
+ * ตรวจสอบว่าเป็น Admin หรือสูงกว่า
+ */
+function isGeneralAdmin(): bool {
+    return hasAdminRole('admin');
+}
+
+/**
+ * ตรวจสอบว่าเป็น Staff หรือสูงกว่า
+ */
+function isStaffAdmin(): bool {
+    return hasAdminRole('staff');
+}
+
+/**
+ * บังคับให้ต้องเข้าสู่ระบบ Admin ตามระดับสิทธิ์
+ */
+function requireAdminLogin(string $minRole = 'staff'): void {
     if (!isAdminLoggedIn()) {
         $returnUrl = urlencode($_SERVER['REQUEST_URI'] ?? '/admin/index.php');
         header("Location: /admin/login.php?redirect={$returnUrl}");
         exit;
     }
+    if (!hasAdminRole($minRole)) {
+        http_response_code(403);
+        die("
+            <div style='font-family: sans-serif; text-align: center; padding: 50px 20px;'>
+                <h2 style='color: #8c5050;'>403 Forbidden - สิทธิ์ไม่เพียงพอ</h2>
+                <p>บัญชีของคุณ ({$_SESSION['admin_email']}) ไม่มีสิทธิ์เข้าถึงส่วนงานนี้ ต้องการระดับ: <strong>{$minRole}</strong></p>
+                <a href='/admin/index.php' style='color: #3d516b;'>← กลับสู่แดชบอร์ด</a>
+            </div>
+        ");
+    }
 }
 
 /**
- * ดึงข้อมูล Admin ปัจจุบัน
+ * ดึงข้อมูล Admin ปัจจุบัน (Gmail, Role, Avatar)
  */
 function getCurrentAdmin(): ?array {
     if (!isAdminLoggedIn()) return null;
+    $role = $_SESSION['admin_role'] ?? 'staff';
+    $email = $_SESSION['admin_email'] ?? ($_SESSION['admin_username'] ?? '');
+    $name = $_SESSION['admin_name'] ?? 'ผู้ดูแล';
+    $avatar = $_SESSION['admin_avatar'] ?? ('https://ui-avatars.com/api/?name=' . urlencode($name) . '&background=3d516b&color=fff&size=128');
+
+    $roleLabels = [
+        'superadmin' => 'ผู้ดูแลระบบสูงสุด (Super Admin)',
+        'admin' => 'ผู้ดูแลทั่วไป (Admin)',
+        'staff' => 'ผู้ประสานงานรถ (Staff)'
+    ];
+
+    $roleBadges = [
+        'superadmin' => 'bg-purple-100 text-purple-800 border-purple-200',
+        'admin' => 'bg-accent-subtle text-accent border-accent-border',
+        'staff' => 'bg-amber-100 text-amber-800 border-amber-200'
+    ];
+
     return [
         'id' => $_SESSION['admin_id'] ?? 0,
-        'username' => $_SESSION['admin_username'] ?? '',
-        'name' => $_SESSION['admin_name'] ?? 'ผู้ดูแล',
-        'role' => $_SESSION['admin_role'] ?? 'admin'
+        'email' => $email,
+        'username' => $_SESSION['admin_username'] ?? $email,
+        'name' => $name,
+        'role' => $role,
+        'role_label' => $roleLabels[$role] ?? 'ผู้ดูแล',
+        'role_badge' => $roleBadges[$role] ?? 'bg-surface-muted text-charcoal-muted border-charcoal-border',
+        'avatar' => $avatar
     ];
+}
+
+/**
+ * CSRF Protection Token
+ */
+function getCsrfToken(): string {
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return $_SESSION['csrf_token'];
+}
+
+function verifyCsrfToken(?string $token): bool {
+    if (empty($_SESSION['csrf_token']) || empty($token)) {
+        return false;
+    }
+    return hash_equals($_SESSION['csrf_token'], $token);
+}
+
+function csrfField(): string {
+    return '<input type="hidden" name="csrf_token" value="' . htmlspecialchars(getCsrfToken(), ENT_QUOTES, 'UTF-8') . '">';
 }
 
 /**
@@ -141,6 +229,38 @@ function formatThaiDate(?string $dateStr, bool $includeDay = true): string {
  */
 function clean(mixed $value): string {
     return htmlspecialchars(trim((string)$value), ENT_QUOTES, 'UTF-8');
+}
+
+/**
+ * ป้องกันช่องโหว่ CSV Formula / Command Injection (CWE-1236)
+ * เติม single quote นำหน้าหากข้อมูลขึ้นต้นด้วยสัญลักษณ์สูตร เช่น =, +, -, @, \t, \r
+ */
+function sanitizeCsvField(mixed $value): string {
+    $str = trim((string)$value);
+    $dangerChars = ['=', '+', '-', '@', "\t", "\r"];
+    if (!empty($str) && in_array($str[0], $dangerChars, true)) {
+        return "'" . $str;
+    }
+    return $str;
+}
+
+/**
+ * ปิดบังเบอร์โทรศัพท์ (Data Masking) ตามกฎหมาย PDPA (พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล พ.ศ. 2562)
+ * สำหรับบุคคลทั่วไปภายนอก จะปิดบังตัวเลขตรงกลาง เช่น 081-XXX-5678
+ * หากเป็น Admin หรือ Staff ที่เข้าสู่ระบบ จะเห็นเบอร์เต็มเพื่อการประสานงาน
+ */
+function maskPhoneNumber(?string $phone, bool $forceMask = false): string {
+    if (empty($phone)) return '-';
+    if (!$forceMask && isAdminLoggedIn()) {
+        return $phone;
+    }
+    $digits = preg_replace('/[^0-9]/', '', (string)$phone);
+    if (strlen($digits) === 10) {
+        return substr($digits, 0, 3) . '-XXX-' . substr($digits, 6, 4);
+    } elseif (strlen($digits) === 9) {
+        return substr($digits, 0, 2) . '-XXX-' . substr($digits, 5, 4);
+    }
+    return strlen((string)$phone) > 4 ? substr((string)$phone, 0, 3) . '***' . substr((string)$phone, -2) : (string)$phone;
 }
 
 /**
@@ -249,4 +369,185 @@ function seedDemoDataIfEmpty(PDO $db): void {
     foreach ($car2Data as $d) {
         $stmtBook->execute([$tripId, $v2Id, $d[0], $d[1], $d[2], $d[3], $d[4], $d[5], $d[6], $d[7], $d[8]]);
     }
+}
+
+/**
+ * Full-Text Search (FTS5 Trigram with Fallback) for Bookings
+ */
+function searchBookingsFts(PDO $db, string $query, ?int $tripId = 0, int $limit = 20): array {
+    $tripId = (int)($tripId ?? 0);
+    $cleanQuery = trim($query);
+    if (empty($cleanQuery)) return [];
+
+    $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+    $isPgsql = ($driver === 'pgsql');
+
+    // 1. Try SQLite FTS5 Trigram Search
+    if (!$isPgsql) {
+        try {
+            $checkFts = $db->query("SELECT name FROM sqlite_master WHERE type='table' AND name='bookings_fts'")->fetch();
+            if ($checkFts) {
+                // Strip FTS syntax specials
+                $ftsToken = str_replace(['"', "'", '*', '^', ':', '-'], ' ', $cleanQuery);
+                $ftsToken = trim(preg_replace('/\s+/', ' ', $ftsToken));
+                
+                if (!empty($ftsToken)) {
+                    $matchQuery = '"' . $ftsToken . '"';
+                    
+                    $sql = "
+                        SELECT b.*, v.name as vehicle_name, v.vehicle_number, v.type as vehicle_type, v.vehicle_type_label
+                        FROM bookings_fts fts
+                        JOIN bookings b ON b.id = fts.booking_id
+                        JOIN vehicles v ON b.vehicle_id = v.id
+                        WHERE bookings_fts MATCH ?
+                    ";
+                    $params = [$matchQuery];
+                    if ($tripId > 0) {
+                        $sql .= " AND b.trip_id = ?";
+                        $params[] = $tripId;
+                    }
+                    $sql .= " ORDER BY b.vehicle_id ASC, b.seat_number ASC LIMIT ?";
+                    $params[] = $limit;
+
+                    $stmt = $db->prepare($sql);
+                    $stmt->execute($params);
+                    $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                    if (!empty($results)) {
+                        return $results;
+                    }
+                }
+            }
+        } catch (Throwable $e) {}
+    }
+
+    // 2. High-speed Fallback Search using Composite & Index Optimized Queries
+    $cleanPhone = preg_replace('/[^0-9]/', '', $cleanQuery);
+    $whereParts = [];
+    $params = [];
+
+    if ($tripId > 0) {
+        $whereParts[] = "b.trip_id = ?";
+        $params[] = $tripId;
+    }
+
+    $subOr = [];
+    $wildcard = "%{$cleanQuery}%";
+    $subOr[] = "b.passenger_name LIKE ?";
+    $params[] = $wildcard;
+    $subOr[] = "b.first_name LIKE ?";
+    $params[] = $wildcard;
+    $subOr[] = "b.last_name_or_nickname LIKE ?";
+    $params[] = $wildcard;
+
+    if (!empty($cleanPhone) && strlen($cleanPhone) >= 2) {
+        $subOr[] = "b.phone LIKE ?";
+        $params[] = "%{$cleanPhone}%";
+    }
+
+    $whereParts[] = "(" . implode(' OR ', $subOr) . ")";
+    $whereSql = implode(' AND ', $whereParts);
+
+    $sql = "
+        SELECT b.*, v.name as vehicle_name, v.vehicle_number, v.type as vehicle_type, v.vehicle_type_label
+        FROM bookings b
+        JOIN vehicles v ON b.vehicle_id = v.id
+        WHERE {$whereSql}
+        ORDER BY b.vehicle_id ASC, b.seat_number ASC
+        LIMIT ?
+    ";
+    $params[] = $limit;
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Google OAuth 2.0 Configuration
+ */
+function getGoogleOAuthConfig(): array {
+    $clientId = getenv('GOOGLE_CLIENT_ID') ?: ($_ENV['GOOGLE_CLIENT_ID'] ?? ($_SERVER['GOOGLE_CLIENT_ID'] ?? ''));
+    $clientSecret = getenv('GOOGLE_CLIENT_SECRET') ?: ($_ENV['GOOGLE_CLIENT_SECRET'] ?? ($_SERVER['GOOGLE_CLIENT_SECRET'] ?? ''));
+    
+    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['SERVER_PORT'] ?? 80) == 443 ? "https" : "http";
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $defaultRedirect = "{$protocol}://{$host}/admin/google_callback.php";
+    
+    $redirectUri = getenv('GOOGLE_REDIRECT_URI') ?: ($_ENV['GOOGLE_REDIRECT_URI'] ?? ($_SERVER['GOOGLE_REDIRECT_URI'] ?? $defaultRedirect));
+
+    return [
+        'client_id' => trim((string)$clientId),
+        'client_secret' => trim((string)$clientSecret),
+        'redirect_uri' => trim((string)$redirectUri),
+        'is_configured' => !empty($clientId) && !empty($clientSecret)
+    ];
+}
+
+/**
+ * สร้าง URL สำหรับ Google Sign-In (OpenID Connect / OAuth 2.0)
+ */
+function getGoogleAuthUrl(?string $state = null): string {
+    $cfg = getGoogleOAuthConfig();
+    if (empty($state)) {
+        $state = bin2hex(random_bytes(16));
+        $_SESSION['oauth2_state'] = $state;
+    }
+    
+    $params = [
+        'client_id' => $cfg['client_id'],
+        'redirect_uri' => $cfg['redirect_uri'],
+        'response_type' => 'code',
+        'scope' => 'openid email profile',
+        'access_type' => 'online',
+        'state' => $state,
+        'prompt' => 'select_account'
+    ];
+    return 'https://accounts.google.com/o/oauth2/v2/auth?' . http_build_query($params);
+}
+
+/**
+ * แลกเปลี่ยน Google Auth Code เป็น User Profile
+ */
+function exchangeGoogleAuthCode(string $code): ?array {
+    $cfg = getGoogleOAuthConfig();
+    if (!$cfg['is_configured']) return null;
+
+    $tokenUrl = 'https://oauth2.googleapis.com/token';
+    $postData = http_build_query([
+        'code' => $code,
+        'client_id' => $cfg['client_id'],
+        'client_secret' => $cfg['client_secret'],
+        'redirect_uri' => $cfg['redirect_uri'],
+        'grant_type' => 'authorization_code'
+    ]);
+
+    $opts = [
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: " . strlen($postData) . "\r\n",
+            'content' => $postData,
+            'timeout' => 10
+        ]
+    ];
+    $context = stream_context_create($opts);
+    $response = @file_get_contents($tokenUrl, false, $context);
+    if (!$response) return null;
+
+    $tokenData = json_decode($response, true);
+    $accessToken = $tokenData['access_token'] ?? '';
+    if (empty($accessToken)) return null;
+
+    $userInfoUrl = 'https://www.googleapis.com/oauth2/v3/userinfo';
+    $userOpts = [
+        'http' => [
+            'method' => 'GET',
+            'header' => "Authorization: Bearer {$accessToken}\r\nUser-Agent: CarBookingApp/1.0\r\n",
+            'timeout' => 10
+        ]
+    ];
+    $userContext = stream_context_create($userOpts);
+    $userResponse = @file_get_contents($userInfoUrl, false, $userContext);
+    if (!$userResponse) return null;
+
+    return json_decode($userResponse, true);
 }

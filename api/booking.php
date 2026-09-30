@@ -60,116 +60,186 @@ try {
             exit;
         }
 
-        // ตรวจสอบสถานะรอบรถ
-        $stmt = $db->prepare("SELECT is_active FROM trips WHERE id = ?");
-        $stmt->execute([$tripId]);
-        $trip = $stmt->fetch();
-        if (!$trip || (int)$trip['is_active'] !== 1) {
-            echo json_encode(['success' => false, 'message' => 'รอบการเดินทางนี้ปิดรับการลงชื่อแล้ว']);
-            exit;
-        }
+        $driver = $db->getAttribute(PDO::ATTR_DRIVER_NAME);
+        $isSqlite = ($driver === 'sqlite');
 
-        // ดึงข้อมูลรถ
-        $stmtVeh = $db->prepare("SELECT * FROM vehicles WHERE id = ?");
-        $stmtVeh->execute([$vehicleId]);
-        $veh = $stmtVeh->fetch();
-        if (!$veh) {
-            echo json_encode(['success' => false, 'message' => 'ไม่พบข้อมูลรถคันที่เลือก']);
-            exit;
-        }
+        // High Concurrency / Multi-threading Safe Engine (Up to 5 Retries with Jittered Backoff)
+        $maxRetries = 5;
+        $attempt = 0;
+        $bookingSuccess = false;
+        $bookingResult = null;
+        $errorMessage = '';
 
-        // หาที่นั่งว่างถ้าไม่ได้ระบุเบอร์ที่นั่งมา (Auto-assign next seat in order 1..N)
-        if ($seatNumber <= 0) {
-            $stmtOccupied = $db->prepare("SELECT seat_number FROM bookings WHERE vehicle_id = ? ORDER BY seat_number ASC");
-            $stmtOccupied->execute([$vehicleId]);
-            $occupied = $stmtOccupied->fetchAll(PDO::FETCH_COLUMN);
-
-            for ($s = 1; $s <= $veh['total_seats']; $s++) {
-                if (!in_array($s, $occupied)) {
-                    $seatNumber = $s;
-                    break;
+        while ($attempt < $maxRetries) {
+            $attempt++;
+            try {
+                // 1. Transaction & Mutex Locking
+                if ($isSqlite) {
+                    $db->exec("PRAGMA busy_timeout = 10000;");
                 }
-            }
+                $db->beginTransaction();
 
-            if ($seatNumber <= 0) {
-                echo json_encode(['success' => false, 'message' => "ขออภัย {$veh['name']} มีผู้ลงชื่อเต็มแล้ว ({$veh['total_seats']} ที่นั่ง) กรุณาเลือกคันอื่น"]);
-                exit;
-            }
-        } else {
-            // ตรวจสอบที่นั่งที่ระบุว่าว่างหรือไม่
-            $stmtCheck = $db->prepare("SELECT id FROM bookings WHERE vehicle_id = ? AND seat_number = ?");
-            $stmtCheck->execute([$vehicleId, $seatNumber]);
-            if ($stmtCheck->fetch()) {
-                echo json_encode(['success' => false, 'message' => "ที่นั่งลำดับที่ {$seatNumber} ใน {$veh['name']} มีผู้ลงชื่อแล้ว"]);
-                exit;
+                // 2. ตรวจสอบสถานะรอบรถ
+                $stmt = $db->prepare("SELECT is_active FROM trips WHERE id = ?");
+                $stmt->execute([$tripId]);
+                $trip = $stmt->fetch();
+                if (!$trip || (int)$trip['is_active'] !== 1) {
+                    if ($db->inTransaction()) $db->rollBack();
+                    echo json_encode(['success' => false, 'message' => 'รอบการเดินทางนี้ปิดรับการลงชื่อแล้ว']);
+                    exit;
+                }
+
+                // 3. ดึงข้อมูลรถและล็อคแถวเพื่อป้องกันการแย่งที่นั่ง (Pessimistic Row Lock ใน PostgreSQL)
+                if (!$isSqlite) {
+                    $stmtVeh = $db->prepare("SELECT * FROM vehicles WHERE id = ? FOR UPDATE");
+                } else {
+                    $stmtVeh = $db->prepare("SELECT * FROM vehicles WHERE id = ?");
+                }
+                $stmtVeh->execute([$vehicleId]);
+                $veh = $stmtVeh->fetch();
+                if (!$veh) {
+                    if ($db->inTransaction()) $db->rollBack();
+                    echo json_encode(['success' => false, 'message' => 'ไม่พบข้อมูลรถคันที่เลือก']);
+                    exit;
+                }
+
+                // 4. ตรวจสอบความซ้ำซ้อน (ชื่อหรือเบอร์โทร) ภายใต้ Transaction Lock ป้องกัน Double Booking
+                $stmtDup = $db->prepare("
+                    SELECT b.seat_number, v.name as vehicle_name 
+                    FROM bookings b 
+                    JOIN vehicles v ON b.vehicle_id = v.id 
+                    WHERE b.trip_id = ? AND (
+                        REPLACE(REPLACE(b.phone, '-', ''), ' ', '') = ? 
+                        OR (b.first_name = ? AND b.last_name_or_nickname = ? AND b.first_name != '')
+                    )
+                ");
+                $stmtDup->execute([$tripId, $phone, $firstName, $lastNameOrNickname]);
+                if ($dup = $stmtDup->fetch()) {
+                    if ($db->inTransaction()) $db->rollBack();
+                    echo json_encode([
+                        'success' => false, 
+                        'message' => "ท่าน (หรือเบอร์นี้) ได้ลงชื่อไว้ใน {$dup['vehicle_name']} ลำดับที่ {$dup['seat_number']} แล้ว หากต้องการเปลี่ยนคัน กรุณายกเลิกในหน้าตรวจสอบก่อน"
+                    ]);
+                    exit;
+                }
+
+                // 5. หาที่นั่งว่างแบบ Atomic หรือตรวจสอบที่นั่งที่ระบุ
+                $finalSeatNumber = $seatNumber;
+                if ($finalSeatNumber <= 0) {
+                    $stmtOccupied = $db->prepare("SELECT seat_number FROM bookings WHERE vehicle_id = ? ORDER BY seat_number ASC");
+                    $stmtOccupied->execute([$vehicleId]);
+                    $occupied = $stmtOccupied->fetchAll(PDO::FETCH_COLUMN);
+
+                    $allocated = 0;
+                    for ($s = 1; $s <= (int)$veh['total_seats']; $s++) {
+                        if (!in_array($s, $occupied)) {
+                            $allocated = $s;
+                            break;
+                        }
+                    }
+
+                    if ($allocated <= 0) {
+                        if ($db->inTransaction()) $db->rollBack();
+                        echo json_encode(['success' => false, 'message' => "ขออภัย {$veh['name']} มีผู้ลงชื่อเต็มแล้ว ({$veh['total_seats']} ที่นั่ง) กรุณาเลือกคันอื่น"]);
+                        exit;
+                    }
+                    $finalSeatNumber = $allocated;
+                } else {
+                    $stmtCheck = $db->prepare("SELECT id FROM bookings WHERE vehicle_id = ? AND seat_number = ?");
+                    $stmtCheck->execute([$vehicleId, $finalSeatNumber]);
+                    if ($stmtCheck->fetch()) {
+                        if ($db->inTransaction()) $db->rollBack();
+                        echo json_encode(['success' => false, 'message' => "ที่นั่งลำดับที่ {$finalSeatNumber} ใน {$veh['name']} มีผู้ลงชื่อแล้ว"]);
+                        exit;
+                    }
+                }
+
+                // 6. บันทึกการลงชื่อ
+                $now = date('Y-m-d H:i:s');
+                $stmtInsert = $db->prepare("
+                    INSERT INTO bookings (
+                        trip_id, vehicle_id, seat_number, passenger_name, 
+                        prefix, first_name, last_name_or_nickname, age, phone, travel_type, note, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ");
+                $stmtInsert->execute([
+                    $tripId, $vehicleId, $finalSeatNumber, $passengerName,
+                    $prefix, $firstName, $lastNameOrNickname, $age, $phone, $travelType, $note, $now
+                ]);
+                $bookingId = getDbLastInsertId($db, 'bookings');
+
+                $db->commit();
+                $bookingSuccess = true;
+                $bookingResult = [
+                    'id' => $bookingId,
+                    'vehicle_name' => $veh['name'],
+                    'seat_number' => $finalSeatNumber,
+                    'passenger_name' => $passengerName,
+                    'phone' => $phone,
+                    'travel_type' => $travelType,
+                    'created_at' => $now
+                ];
+                break; // สำเร็จ หลุดออกจากลูป retry
+
+            } catch (PDOException $e) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                $errCode = $e->getCode();
+                $errInfo = $e->getMessage();
+
+                // ตรวจสอบว่าเกิด Collision ชนกันหรือไม่ หากชนกันให้ Backoff และ Retry
+                $isCollision = str_contains($errInfo, 'UNIQUE') || 
+                               str_contains($errInfo, 'locked') || 
+                               str_contains($errInfo, 'busy') || 
+                               str_contains($errInfo, 'could not obtain lock') ||
+                               $errCode == 23505 || 
+                               $errCode == '23505';
+
+                if ($isCollision && $attempt < $maxRetries) {
+                    usleep(mt_rand(15000, 60000)); // สุ่มหน่วงเวลา 15ms - 60ms แล้วลองใหม่
+                    continue;
+                }
+                $errorMessage = "ระบบมีผู้ใช้งานหนาแน่น กรุณาลองใหม่อีกครั้ง (" . ($isCollision ? 'ที่นั่งถูกจับจองไปก่อนหน้า' : 'เซิร์ฟเวอร์กำลังประมวลผล') . ")";
+                break;
             }
         }
 
-        // ตรวจสอบว่าเบอร์โทร หรือชื่อนี้เคยลงชื่อในรอบนี้แล้วหรือไม่
-        $stmtDup = $db->prepare("
-            SELECT b.seat_number, v.name as vehicle_name 
-            FROM bookings b 
-            JOIN vehicles v ON b.vehicle_id = v.id 
-            WHERE b.trip_id = ? AND (
-                REPLACE(REPLACE(b.phone, '-', ''), ' ', '') = ? 
-                OR (b.first_name = ? AND b.last_name_or_nickname = ? AND b.first_name != '')
-            )
-        ");
-        $stmtDup->execute([$tripId, $phone, $firstName, $lastNameOrNickname]);
-        if ($dup = $stmtDup->fetch()) {
+        if ($bookingSuccess && $bookingResult) {
             echo json_encode([
-                'success' => false, 
-                'message' => "ท่าน (หรือเบอร์นี้) ได้ลงชื่อไว้ใน {$dup['vehicle_name']} ลำดับที่ {$dup['seat_number']} แล้ว หากต้องการเปลี่ยนคัน กรุณายกเลิกในหน้าตรวจสอบก่อน"
+                'success' => true,
+                'message' => "ลงชื่อสำเร็จ! ท่านได้ลงชื่อใน {$bookingResult['vehicle_name']} ลำดับที่ {$bookingResult['seat_number']}",
+                'booking' => $bookingResult
+            ]);
+            exit;
+        } else {
+            echo json_encode([
+                'success' => false,
+                'message' => !empty($errorMessage) ? $errorMessage : 'ไม่สามารถลงชื่อได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง'
             ]);
             exit;
         }
 
-        // บันทึกการจอง
-        $stmtInsert = $db->prepare("
-            INSERT INTO bookings (
-                trip_id, vehicle_id, seat_number, passenger_name, 
-                prefix, first_name, last_name_or_nickname, age, phone, travel_type, note
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ");
-        $stmtInsert->execute([
-            $tripId, $vehicleId, $seatNumber, $passengerName,
-            $prefix, $firstName, $lastNameOrNickname, $age, $phone, $travelType, $note
-        ]);
-        $bookingId = getDbLastInsertId($db, 'bookings');
-
-        echo json_encode([
-            'success' => true,
-            'message' => "ลงชื่อสำเร็จ! ท่านได้ลงชื่อใน {$veh['name']} ลำดับที่ {$seatNumber}",
-            'booking' => [
-                'id' => $bookingId,
-                'vehicle_name' => $veh['name'],
-                'seat_number' => $seatNumber,
-                'passenger_name' => $passengerName,
-                'phone' => $phone,
-                'travel_type' => $travelType
-            ]
-        ]);
-        exit;
-
     } elseif ($action === 'cancel') {
         $bookingId = (int)($_POST['booking_id'] ?? 0);
-        $phoneConfirm = clean($_POST['phone_confirm'] ?? '');
         
-        // SECURITY FIX: เฉพาะ Admin ที่ล็อกอินผ่าน Session เท่านั้น ห้ามเชื่อถือ $_POST['is_admin']
+        // กฎความปลอดภัย: การยกเลิกการลงชื่อให้สิทธิ์เฉพาะผู้ดูแลระบบ (Admin) เท่านั้น
         $isAdmin = isAdminLoggedIn();
+        if (!$isAdmin) {
+            echo json_encode([
+                'success' => false, 
+                'message' => 'ขออภัย สิทธิ์ในการยกเลิกการลงชื่อสำหรับผู้ดูแลระบบ (Admin) เท่านั้น หากต้องการยกเลิกกรุณาแจ้งผู้ประสานงานหรือผู้ดูแลระบบ'
+            ]);
+            exit;
+        }
 
         if (!$bookingId) {
             echo json_encode(['success' => false, 'message' => 'ไม่พบรหัสการลงชื่อ']);
             exit;
         }
 
-        $stmt = $db->prepare("
-            SELECT b.*, t.is_active as trip_is_active 
-            FROM bookings b 
-            JOIN trips t ON b.trip_id = t.id 
-            WHERE b.id = ?
-        ");
+        $stmt = $db->prepare("SELECT * FROM bookings WHERE id = ?");
         $stmt->execute([$bookingId]);
         $b = $stmt->fetch();
         if (!$b) {
@@ -177,29 +247,10 @@ try {
             exit;
         }
 
-        if (!$isAdmin) {
-            // ถ้ารอบการเดินทางปิดรับแล้ว ไม่อนุญาตให้ถอดชื่อออกเองตามระเบียบสงฆ์
-            if ((int)$b['trip_is_active'] !== 1) {
-                echo json_encode([
-                    'success' => false, 
-                    'message' => 'รอบการเดินทางนี้ปิดรับและตัดยอดแล้ว ไม่อนุญาตให้ถอดชื่อออกเอง หากมีเหตุจำเป็นกรุณาติดต่อผู้ดูแลระบบ'
-                ]);
-                exit;
-            }
-
-            $cleanPhone1 = preg_replace('/[^0-9]/', '', $b['phone']);
-            $cleanPhone2 = preg_replace('/[^0-9]/', '', $phoneConfirm);
-
-            if ($cleanPhone1 !== $cleanPhone2 || empty($cleanPhone2)) {
-                echo json_encode(['success' => false, 'message' => 'เบอร์โทรศัพท์ยืนยันไม่ถูกต้อง']);
-                exit;
-            }
-        }
-
         $stmtDel = $db->prepare("DELETE FROM bookings WHERE id = ?");
         $stmtDel->execute([$bookingId]);
 
-        echo json_encode(['success' => true, 'message' => 'ยกเลิกการลงชื่อเรียบร้อยแล้ว']);
+        echo json_encode(['success' => true, 'message' => "ยกเลิกการลงชื่อของคุณ {$b['passenger_name']} เรียบร้อยแล้ว"]);
         exit;
     }
 

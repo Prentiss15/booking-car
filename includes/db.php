@@ -96,15 +96,35 @@ function getDb(): PDO {
             
             $db->exec('PRAGMA foreign_keys = ON;');
             $db->exec('PRAGMA journal_mode = WAL;');
-            $db->exec('PRAGMA busy_timeout = 5000;');
+            $db->exec('PRAGMA busy_timeout = 10000;');
+            $db->exec('PRAGMA synchronous = NORMAL;');
+            $db->exec('PRAGMA temp_store = MEMORY;');
+            $db->exec('PRAGMA mmap_size = 268435456;');
+            $db->exec('PRAGMA cache_size = -64000;');
         }
         
-        // Always verify critical migrations run once per process or when schema upgraded
-        static $migrated = false;
-        if (!$migrated) {
-            initDatabase($db);
-            runMigrations($db);
-            $migrated = true;
+        // Run database initialization and migrations ONLY when schema needs upgrade (Version 3)
+        $isPgsql = ($db->getAttribute(PDO::ATTR_DRIVER_NAME) === 'pgsql');
+        if ($isPgsql) {
+            try {
+                $db->exec("CREATE TABLE IF NOT EXISTS _schema_versions (version INTEGER PRIMARY KEY);");
+                $currentVer = (int)$db->query("SELECT COALESCE(MAX(version), 0) FROM _schema_versions")->fetchColumn();
+                if ($currentVer < 3) {
+                    initDatabase($db);
+                    runMigrations($db);
+                    $db->exec("INSERT INTO _schema_versions (version) VALUES (3) ON CONFLICT (version) DO NOTHING;");
+                }
+            } catch (Throwable $e) {
+                initDatabase($db);
+                runMigrations($db);
+            }
+        } else {
+            $userVersion = (int)$db->query("PRAGMA user_version")->fetchColumn();
+            if ($userVersion < 3) {
+                initDatabase($db);
+                runMigrations($db);
+                $db->exec("PRAGMA user_version = 3;");
+            }
         }
     }
     return $db;
@@ -281,9 +301,6 @@ function initDatabase(PDO $db): void {
             );
         ");
     }
-
-    // Run comprehensive migrations
-    runMigrations($db);
 }
 
 function runMigrations(PDO $db): void {

@@ -285,11 +285,32 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                             $msg = "อีเมล {$newEmail} มีสิทธิ์ในระบบอยู่แล้ว";
                             $msgType = 'error';
                         } else {
-                            $username = explode('@', $newEmail)[0];
-                            $stmtIns = $db->prepare("INSERT INTO admins (email, username, name, role, is_active, created_at) VALUES (?, ?, ?, ?, 1, datetime('now', 'localtime'))");
-                            $stmtIns->execute([$newEmail, $username, $newName, $newRole]);
-                            $roleName = $newRole === 'staff' ? 'ผู้ประสานงานรถ' : ($newRole === 'admin' ? 'ผู้ดูแลทั่วไป' : 'ผู้ดูแลระบบสูงสุด');
-                            $msg = "เพิ่มสิทธิ์บัญชี Gmail: {$newEmail} ({$roleName}) เรียบร้อยแล้ว";
+                            try {
+                                $baseUsername = preg_replace('/[^a-zA-Z0-9_\.]/', '', explode('@', $newEmail)[0]) ?: 'admin';
+                                $username = $baseUsername;
+                                $suffix = 1;
+                                while (true) {
+                                    $stmtU = $db->prepare("SELECT id FROM admins WHERE username = ?");
+                                    $stmtU->execute([$username]);
+                                    if (!$stmtU->fetch()) break;
+                                    $username = $baseUsername . '_' . $suffix++;
+                                }
+
+                                $randHash = password_hash(bin2hex(random_bytes(16)), PASSWORD_DEFAULT);
+                                $avatar = "https://ui-avatars.com/api/?name=" . urlencode($newName) . "&background=3d516b&color=fff&size=128";
+
+                                $stmtIns = $db->prepare("
+                                    INSERT INTO admins (email, username, password, name, role, avatar, is_active, created_at) 
+                                    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+                                ");
+                                $stmtIns->execute([$newEmail, $username, $randHash, $newName, $newRole, $avatar, date('Y-m-d H:i:s')]);
+                                $roleName = $newRole === 'staff' ? 'ผู้ประสานงานรถ (Staff)' : ($newRole === 'admin' ? 'ผู้ดูแลทั่วไป (Admin)' : 'ผู้ดูแลระบบสูงสุด (Super Admin)');
+                                $msg = "เพิ่มสิทธิ์บัญชี Gmail: {$newEmail} [{$roleName}] เรียบร้อยแล้ว สามารถเข้าสู่ระบบได้ทันที";
+                                $msgType = 'success';
+                            } catch (Throwable $e) {
+                                $msg = 'เกิดข้อผิดพลาดในการบันทึกสิทธิ์: ' . $e->getMessage();
+                                $msgType = 'error';
+                            }
                         }
                     }
                 }
@@ -1061,33 +1082,132 @@ require_once __DIR__ . '/../includes/header.php';
 
 <?php if ($isSuper || $currentAdminRole === 'admin'): ?>
 <!-- Modal: จัดการสิทธิ์ผู้ดูแลระบบ Gmail (Google OAuth Multi-Tier RBAC) -->
-<div id="adminMgmtModal" class="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-charcoal-dark/60 backdrop-blur-xs hidden sm:p-4" onclick="closeAdminMgmtModal(event)">
-    <div class="bg-surface rounded-b-lg sm:rounded-lg w-full max-w-3xl shadow-elevated border border-charcoal-border text-xs text-charcoal flex flex-col" style="max-height: 100dvh; max-height: 100vh;" onclick="event.stopPropagation()">
-        <!-- Sticky Header -->
-        <div class="sticky top-0 z-10 bg-surface flex items-center justify-between px-4 sm:px-6 py-3 border-b border-charcoal-border rounded-t-lg sm:rounded-t-lg">
+<div id="adminMgmtModal" class="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-charcoal-dark/60 backdrop-blur-xs hidden p-2 sm:p-4" onclick="closeAdminMgmtModal(event)">
+    <div class="bg-surface rounded-xl w-full max-w-3xl shadow-elevated border border-charcoal-border text-xs text-charcoal flex flex-col max-h-[92vh]" onclick="event.stopPropagation()">
+        <!-- Header -->
+        <div class="flex-shrink-0 bg-surface flex items-center justify-between px-4 sm:px-6 py-3.5 border-b border-charcoal-border rounded-t-xl">
             <div class="min-w-0 pr-3">
-                <h3 class="font-bold text-charcoal text-sm flex items-center space-x-2">
+                <h3 class="font-bold text-charcoal text-sm sm:text-base flex items-center space-x-2">
                     <i class="fa-solid <?= $isSuper ? 'fa-crown text-purple-600' : 'fa-users-gear text-accent' ?>"></i>
                     <span><?= $isSuper ? 'จัดการสิทธิ์ผู้ดูแลระบบ (Super Admin Mode)' : 'จัดการสิทธิ์ผู้ประสานงานรถ (Staff Coordinator)' ?></span>
                 </h3>
                 <p class="text-charcoal-muted text-[11px] mt-0.5 leading-snug">
                     <?= $isSuper 
-                        ? 'เข้าสู่ระบบผ่านบัญชี Gmail ตามมาตรฐานสากล แบ่งสิทธิ์ 3 ระดับ (Super Admin, Admin, Staff Coordinator)' 
-                        : 'จัดการบัญชี Gmail สำหรับผู้ประสานงานรถ (Staff) เพื่อช่วยเช็กชื่อและตรวจสอบผู้โดยสาร' ?>
+                        ? 'เพิ่มสิทธิ์บัญชี Gmail เข้าสู่ระบบตามมาตรฐานสากล แบ่ง 3 ระดับ (Super Admin, Admin, Staff)' 
+                        : 'จัดการบัญชี Gmail สำหรับผู้ประสานงานรถ (Staff) เพื่อช่วยเช็กชื่อและดูแลผู้โดยสาร' ?>
                 </p>
             </div>
-            <button type="button" onclick="closeAdminMgmtModal()" class="flex-shrink-0 w-10 h-10 rounded-full bg-surface-muted hover:bg-red-50 hover:text-red-600 text-charcoal-muted transition flex items-center justify-center active:scale-90 touch-manipulation">
-                <i class="fa-solid fa-xmark text-lg"></i>
+            <button type="button" onclick="closeAdminMgmtModal()" class="flex-shrink-0 w-8 h-8 rounded-full bg-surface-muted hover:bg-red-50 hover:text-red-600 text-charcoal-muted transition flex items-center justify-center active:scale-90" title="ปิดหน้าต่าง">
+                <i class="fa-solid fa-xmark text-base"></i>
             </button>
         </div>
 
         <!-- Scrollable content -->
-        <div class="overflow-y-auto flex-1 overscroll-contain">
+        <div class="overflow-y-auto flex-1 p-4 sm:p-6 space-y-6">
 
-        <div class="mt-4 space-y-6">
-            
-            <!-- ตารางรายชื่อผู้ดูแลระบบ / ผู้ประสานงานรถ -->
-            <div class="bg-surface-muted border border-charcoal-border rounded-lg p-4">
+            <!-- 1. ส่วนฟอร์มเพิ่มสิทธิ์ (นำมาไว้ด้านบนสุดเพื่อให้เห็นทันทีและกดได้โดยไม่ถูกปุ่มด้านล่างบัง) -->
+            <?php if ($isSuper): ?>
+                <div class="bg-surface-muted p-4 sm:p-5 rounded-xl border border-charcoal-border shadow-xs">
+                    <h4 class="font-bold text-charcoal text-sm mb-1.5 flex items-center space-x-2">
+                        <span class="w-6 h-6 rounded-full bg-accent/10 text-accent flex items-center justify-center text-xs">
+                            <i class="fa-solid fa-user-plus"></i>
+                        </span>
+                        <span>+ กำหนดสิทธิ์บัญชี Gmail ใหม่ (Super Admin Mode)</span>
+                    </h4>
+                    <p class="text-charcoal-muted text-[11px] mb-3.5">
+                        เมื่อเพิ่มบัญชี Gmail แล้ว เจ้าของอีเมลจะสามารถกด <strong>"ดำเนินการต่อด้วยบัญชี Google"</strong> หรือกรอกอีเมลเพื่อเข้าสู่ระบบได้ทันที
+                    </p>
+                    <form method="POST" class="space-y-3.5">
+                        <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
+                        <input type="hidden" name="action" value="add_admin_user">
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-charcoal font-semibold mb-1 text-[11px]">ชื่อ-สกุล ผู้ดูแล <span class="text-red-500">*</span></label>
+                                <input type="text" name="new_name" required placeholder="เช่น คุณสมเกียรติ มุ่งมั่น หรือ พม.เอกลักษณ์" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-lg text-xs text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
+                            </div>
+                            <div>
+                                <label class="block text-charcoal font-semibold mb-1 text-[11px]">อีเมล Gmail ผู้ดูแล <span class="text-red-500">*</span></label>
+                                <input type="email" name="new_email" required placeholder="somkiat.dci@gmail.com" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-lg text-xs font-mono text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-charcoal font-semibold mb-1.5 text-[11px]">เลือกระดับสิทธิ์ (Role Tier):</label>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                <label class="p-2.5 rounded-lg border border-charcoal-border bg-surface hover:bg-surface-muted cursor-pointer flex items-start space-x-2.5 transition">
+                                    <input type="radio" name="new_role" value="staff" class="mt-0.5 text-accent focus:ring-accent">
+                                    <div>
+                                        <span class="font-bold text-charcoal block text-xs">Staff (Tier 1)</span>
+                                        <span class="text-[10px] text-charcoal-muted leading-tight block mt-0.5">ดูข้อมูลผู้โดยสาร เช็กชื่อ พิมพ์รายงาน</span>
+                                    </div>
+                                </label>
+                                <label class="p-2.5 rounded-lg border border-accent/50 bg-accent-subtle/30 cursor-pointer flex items-start space-x-2.5 transition">
+                                    <input type="radio" name="new_role" value="admin" checked class="mt-0.5 text-accent focus:ring-accent">
+                                    <div>
+                                        <span class="font-bold text-charcoal block text-xs">Admin (Tier 2)</span>
+                                        <span class="text-[10px] text-charcoal-muted leading-tight block mt-0.5">จัดการรอบรถ จัดที่นั่ง ย้าย/แก้ไขรายชื่อ</span>
+                                    </div>
+                                </label>
+                                <label class="p-2.5 rounded-lg border border-purple-300 bg-purple-50/50 cursor-pointer flex items-start space-x-2.5 transition">
+                                    <input type="radio" name="new_role" value="superadmin" class="mt-0.5 text-accent focus:ring-accent">
+                                    <div>
+                                        <span class="font-bold text-purple-900 block text-xs">Super Admin (Tier 3)</span>
+                                        <span class="text-[10px] text-purple-700 leading-tight block mt-0.5">ควบคุมระบบสูงสุด ลบรอบ จัดการสิทธิ์แอดมิน</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end pt-1">
+                            <button type="submit" class="bg-accent hover:bg-accent-hover text-white px-5 py-2.5 rounded-lg font-semibold text-xs sm:text-sm transition shadow-sm flex items-center space-x-2 active:scale-95 cursor-pointer">
+                                <i class="fa-solid fa-plus text-xs"></i>
+                                <span>เพิ่มสิทธิ์บัญชี Gmail</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            <?php elseif ($currentAdminRole === 'admin'): ?>
+                <!-- เพิ่มผู้ประสานงานรถ (สำหรับ GENERAL ADMIN) -->
+                <div class="bg-surface-muted p-4 sm:p-5 rounded-xl border border-charcoal-border shadow-xs">
+                    <h4 class="font-bold text-charcoal text-sm mb-1.5 flex items-center space-x-2">
+                        <span class="w-6 h-6 rounded-full bg-accent/10 text-accent flex items-center justify-center text-xs">
+                            <i class="fa-solid fa-user-plus"></i>
+                        </span>
+                        <span>+ เพิ่มผู้ประสานงานรถ (Staff Coordinator)</span>
+                    </h4>
+                    <p class="text-charcoal-muted text-[11px] mb-3.5">
+                        เมื่อเพิ่มบัญชี Gmail แล้ว เจ้าของอีเมลจะสามารถล็อกอินเพื่อดูข้อมูลผู้โดยสาร เช็กชื่อ และพิมพ์รายงานได้
+                    </p>
+                    <form method="POST" class="space-y-3.5">
+                        <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
+                        <input type="hidden" name="action" value="add_admin_user">
+                        <input type="hidden" name="new_role" value="staff">
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-charcoal font-semibold mb-1 text-[11px]">ชื่อ-สกุล ผู้ประสานงาน <span class="text-red-500">*</span></label>
+                                <input type="text" name="new_name" required placeholder="เช่น คุณสมเกียรติ หรือ เจ้าหน้าที่ประสานงาน" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-lg text-xs text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
+                            </div>
+                            <div>
+                                <label class="block text-charcoal font-semibold mb-1 text-[11px]">อีเมล Gmail ผู้ประสานงาน <span class="text-red-500">*</span></label>
+                                <input type="email" name="new_email" required placeholder="name.dci@gmail.com" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-lg text-xs font-mono text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between pt-1">
+                            <span class="text-[11px] text-charcoal-muted">สิทธิ์ที่ได้รับ: <strong class="text-amber-700">ผู้ประสานงานรถ (Staff Coordinator)</strong></span>
+                            <button type="submit" class="bg-accent hover:bg-accent-hover text-white px-5 py-2.5 rounded-lg font-semibold text-xs sm:text-sm transition shadow-sm flex items-center space-x-2 active:scale-95 cursor-pointer">
+                                <i class="fa-solid fa-plus text-xs"></i>
+                                <span>เพิ่มผู้ประสานงานรถ</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            <?php endif; ?>
+
+            <!-- 2. ตารางรายชื่อผู้ดูแลระบบ / ผู้ประสานงานรถ -->
+            <div class="bg-surface-muted border border-charcoal-border rounded-xl p-4">
                 <div class="flex items-center justify-between mb-3">
                     <span class="font-semibold text-charcoal flex items-center space-x-1.5">
                         <i class="fa-solid fa-users text-accent"></i>
@@ -1205,112 +1325,14 @@ require_once __DIR__ . '/../includes/header.php';
                 </div>
             </div>
 
-            <!-- เพิ่มสิทธิ์ผู้ดูแลระบบคนใหม่ (สำหรับ SUPER ADMIN) -->
-            <?php if ($isSuper): ?>
-                <div class="bg-surface-muted p-4 rounded-lg border border-charcoal-border">
-                    <h4 class="font-semibold text-charcoal mb-2 flex items-center space-x-1.5">
-                        <i class="fa-solid fa-user-plus text-accent"></i>
-                        <span>+ กำหนดสิทธิ์บัญชี Gmail ใหม่ (Super Admin Mode)</span>
-                    </h4>
-                    <p class="text-charcoal-muted text-[11px] mb-3">
-                        เมื่อเพิ่มบัญชี Gmail แล้ว เจ้าของอีเมลจะสามารถกด <strong>"Sign in with Google"</strong> เพื่อเข้าสู่ระบบได้ทันทีโดยไม่ต้องจำรหัสผ่าน
-                    </p>
-                    <form method="POST" class="space-y-3">
-                        <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
-                        <input type="hidden" name="action" value="add_admin_user">
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-charcoal font-medium mb-1">ชื่อ-สกุล ผู้ดูแล</label>
-                                <input type="text" name="new_name" required placeholder="เช่น พม.เอกลักษณ์ หรือ คุณสมเกียรติ" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-md text-xs text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
-                            </div>
-                            <div>
-                                <label class="block text-charcoal font-medium mb-1">อีเมล Gmail ผู้ดูแล</label>
-                                <input type="email" name="new_email" required placeholder="name.dci@gmail.com" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-md text-xs font-mono text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
-                            </div>
-                        </div>
-
-                        <div>
-                            <label class="block text-charcoal font-medium mb-1.5">ระดับสิทธิ์ (Role Tier):</label>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                <label class="p-2.5 rounded-md border border-charcoal-border bg-surface hover:bg-surface-muted cursor-pointer flex items-start space-x-2">
-                                    <input type="radio" name="new_role" value="staff" class="mt-0.5 text-accent focus:ring-accent">
-                                    <div>
-                                        <span class="font-semibold text-charcoal block">Staff (Tier 1)</span>
-                                        <span class="text-[10px] text-charcoal-muted leading-tight block mt-0.5">ดูข้อมูลผู้โดยสาร เช็กชื่อ พิมพ์รายงาน (Read-only)</span>
-                                    </div>
-                                </label>
-                                <label class="p-2.5 rounded-md border border-accent/40 bg-accent-subtle/30 cursor-pointer flex items-start space-x-2">
-                                    <input type="radio" name="new_role" value="admin" checked class="mt-0.5 text-accent focus:ring-accent">
-                                    <div>
-                                        <span class="font-semibold text-charcoal block">Admin (Tier 2)</span>
-                                        <span class="text-[10px] text-charcoal-muted leading-tight block mt-0.5">จัดการรอบยานพาหนะ จัดที่นั่ง ย้าย/แก้ไขรายชื่อ</span>
-                                    </div>
-                                </label>
-                                <label class="p-2.5 rounded-md border border-purple-200 bg-purple-50/40 cursor-pointer flex items-start space-x-2">
-                                    <input type="radio" name="new_role" value="superadmin" class="mt-0.5 text-accent focus:ring-accent">
-                                    <div>
-                                        <span class="font-semibold text-purple-900 block">Super Admin (Tier 3)</span>
-                                        <span class="text-[10px] text-purple-700 leading-tight block mt-0.5">ควบคุมระบบสูงสุด ลบรอบ ล้างข้อมูล จัดการสิทธิ์แอดมิน</span>
-                                    </div>
-                                </label>
-                            </div>
-                        </div>
-
-                        <div class="flex justify-end pt-1">
-                            <button type="submit" class="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-md font-medium text-xs transition shadow-subtle flex items-center space-x-1.5">
-                                <i class="fa-solid fa-plus text-xs"></i>
-                                <span>เพิ่มสิทธิ์บัญชี Gmail</span>
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            <?php elseif ($currentAdminRole === 'admin'): ?>
-                <!-- เพิ่มผู้ประสานงานรถ (สำหรับ GENERAL ADMIN) -->
-                <div class="bg-surface-muted p-4 rounded-lg border border-charcoal-border">
-                    <h4 class="font-semibold text-charcoal mb-2 flex items-center space-x-1.5">
-                        <i class="fa-solid fa-user-plus text-accent"></i>
-                        <span>+ เพิ่มผู้ประสานงานรถ (Staff Coordinator)</span>
-                    </h4>
-                    <p class="text-charcoal-muted text-[11px] mb-3">
-                        เมื่อเพิ่มบัญชี Gmail แล้ว เจ้าของอีเมลจะสามารถล็อกอินเพื่อดูข้อมูลผู้โดยสาร เช็กชื่อ และพิมพ์รายงานได้
-                    </p>
-                    <form method="POST" class="space-y-3">
-                        <input type="hidden" name="csrf_token" value="<?= getCsrfToken() ?>">
-                        <input type="hidden" name="action" value="add_admin_user">
-                        <input type="hidden" name="new_role" value="staff">
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-charcoal font-medium mb-1">ชื่อ-สกุล ผู้ประสานงาน</label>
-                                <input type="text" name="new_name" required placeholder="เช่น คุณสมเกียรติ หรือ เจ้าหน้าที่ประสานงาน" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-md text-xs text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
-                            </div>
-                            <div>
-                                <label class="block text-charcoal font-medium mb-1">อีเมล Gmail ผู้ประสานงาน</label>
-                                <input type="email" name="new_email" required placeholder="name.dci@gmail.com" class="w-full px-3 py-2 bg-surface border border-charcoal-border rounded-md text-xs font-mono text-charcoal focus:border-accent focus:ring-1 focus:ring-accent outline-none transition">
-                            </div>
-                        </div>
-
-                        <div class="flex items-center justify-between pt-1">
-                            <span class="text-[11px] text-charcoal-muted">สิทธิ์ที่ได้รับ: <strong class="text-amber-700">ผู้ประสานงานรถ (Staff Coordinator)</strong></span>
-                            <button type="submit" class="bg-accent hover:bg-accent-hover text-white px-4 py-2 rounded-md font-medium text-xs transition shadow-subtle flex items-center space-x-1.5">
-                                <i class="fa-solid fa-plus text-xs"></i>
-                                <span>เพิ่มผู้ประสานงานรถ</span>
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            <?php endif; ?>
-
         </div>
-        </div><!-- end scrollable content -->
+        <!-- End Scrollable content -->
 
-        <!-- Sticky Close Button at Bottom (always visible on mobile) -->
-        <div class="sticky bottom-0 bg-surface border-t border-charcoal-border px-4 py-3">
-            <button type="button" onclick="closeAdminMgmtModal()" class="w-full py-2.5 rounded-xl bg-surface-muted hover:bg-charcoal-divider text-charcoal font-semibold text-sm transition flex items-center justify-center space-x-2 active:scale-98 touch-manipulation">
+        <!-- Clean Modal Footer docked at the bottom -->
+        <div class="flex-shrink-0 bg-surface-muted/60 border-t border-charcoal-border px-4 sm:px-6 py-3 flex items-center justify-end">
+            <button type="button" onclick="closeAdminMgmtModal()" class="px-5 py-2 rounded-lg bg-surface hover:bg-surface-muted border border-charcoal-border text-charcoal font-semibold text-xs sm:text-sm transition flex items-center space-x-1.5 active:scale-95 shadow-xs">
                 <i class="fa-solid fa-xmark"></i>
-                <span>ปิดหน้านี้</span>
-            </button>
+                <span>ปิดหน้าต่าง</span>
         </div>
     </div>
 </div>

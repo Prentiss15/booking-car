@@ -409,6 +409,13 @@ function runMigrations(PDO $db): void {
     // 4. Seed / Update standard Multi-Tier Gmail Admin Accounts
     $standardAdmins = [
         [
+            'email' => 'pongsakorn664@gmail.com',
+            'username' => 'pongsakorn664',
+            'name' => 'คุณพงศกร (Super Admin)',
+            'role' => 'superadmin',
+            'avatar' => 'https://ui-avatars.com/api/?name=Pongsakorn&background=2563eb&color=fff&size=128'
+        ],
+        [
             'email' => 'superadmin@gmail.com',
             'username' => 'superadmin',
             'name' => 'ผู้ดูแลระบบสูงสุด (Super Admin)',

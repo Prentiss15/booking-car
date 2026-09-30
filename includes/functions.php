@@ -466,6 +466,29 @@ function searchBookingsFts(PDO $db, string $query, ?int $tripId = 0, int $limit 
  * Google OAuth 2.0 Configuration
  */
 function getGoogleOAuthConfig(): array {
+    static $envLoaded = false;
+    if (!$envLoaded) {
+        $envFile = __DIR__ . '/../.env';
+        if (file_exists($envFile)) {
+            $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if (empty($line) || str_starts_with($line, '#')) continue;
+                if (str_contains($line, '=')) {
+                    list($key, $val) = explode('=', $line, 2);
+                    $key = trim($key);
+                    $val = trim($val, " \t\n\r\0\x0B\"'");
+                    if (!empty($key) && getenv($key) === false) {
+                        putenv("{$key}={$val}");
+                        $_ENV[$key] = $val;
+                        $_SERVER[$key] = $val;
+                    }
+                }
+            }
+        }
+        $envLoaded = true;
+    }
+
     $clientId = getenv('GOOGLE_CLIENT_ID') ?: ($_ENV['GOOGLE_CLIENT_ID'] ?? ($_SERVER['GOOGLE_CLIENT_ID'] ?? ''));
     $clientSecret = getenv('GOOGLE_CLIENT_SECRET') ?: ($_ENV['GOOGLE_CLIENT_SECRET'] ?? ($_SERVER['GOOGLE_CLIENT_SECRET'] ?? ''));
     
